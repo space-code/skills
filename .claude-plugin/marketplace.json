@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "dev-productivity-kit",
+  "version": "1.0.0",
+  "description": "A collection of high-quality skills and utilities for mobile and backend developers.",
+  "owner": {
+    "name": "Nikita Vasilev",
+    "email": "nv3212@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "git-suite",
+      "source": "./",
+      "description": "A comprehensive suite of Git workflow skills, including automated conventional commits generation, automated pull request descriptions, smart merge conflict resolution guides, and interactive rebase assistance.",
+      "keywords": ["git", "conventional-commit", "workflow", "automation", "pull-request"],
+      "category": "development",
+      "skills": [
+        "./skills/conventional-commits"
+      ]
+    }
+  ]
+}
