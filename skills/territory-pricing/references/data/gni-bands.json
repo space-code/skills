@@ -1,0 +1,4 @@
+{
+  "band1_overrides": ["ARE", "SAU", "QAT", "KWT", "BHR", "OMN", "JPN", "KOR", "SGP", "HKG", "TWN"],
+  "note": "Territories forced into band 1 (full price) regardless of GNI per capita: Gulf states plus rich Asian markets that a raw GNI cut or a Big Mac ratio would underprice."
+}
