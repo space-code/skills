@@ -15,7 +15,7 @@ class AscTest < Minitest::Test
   end
 
   def test_jwt_is_a_valid_es256_token
-    key = OpenSSL::PKey::EC.new('prime256v1').generate_key
+    key = OpenSSL::PKey::EC.generate('prime256v1')
     with_key(key.to_pem) do |path|
       token = Asc.jwt(Asc::Credentials.new('ABCDE12345', 'issuer-uuid', path), 1_700_000_000)
       header, payload, signature = token.split('.')
@@ -28,14 +28,12 @@ class AscTest < Minitest::Test
       assert_equal 64, raw.bytesize
       der = OpenSSL::ASN1::Sequence([OpenSSL::ASN1::Integer(OpenSSL::BN.new(raw[0, 32], 2)),
                                      OpenSSL::ASN1::Integer(OpenSSL::BN.new(raw[32, 32], 2))]).to_der
-      public_key = OpenSSL::PKey::EC.new(key.public_key.group)
-      public_key.public_key = key.public_key
-      assert public_key.verify(OpenSSL::Digest::SHA256.new, der, "#{header}.#{payload}")
+      assert key.verify(OpenSSL::Digest::SHA256.new, der, "#{header}.#{payload}")
     end
   end
 
   def test_rejects_keys_that_are_not_p256
-    with_key(OpenSSL::PKey::EC.new('secp384r1').generate_key.to_pem) do |path|
+    with_key(OpenSSL::PKey::EC.generate('secp384r1').to_pem) do |path|
       assert_raises(Asc::Error) { Asc.private_key(path) }
     end
   end
