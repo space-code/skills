@@ -45,12 +45,15 @@ module Asc
   end
 
   Credentials = Struct.new(:key_id, :issuer_id, :p8_path)
+  # collect_points.rb calls the client from several threads
+  CREDENTIALS_LOCK = Mutex.new
+  TOKEN_LOCK = Mutex.new
 
   module_function
 
   # Env vars (ASC_KEY_ID, ASC_ISSUER_ID, ASC_P8) win over the key folder.
   def credentials
-    @credentials ||= resolve_credentials
+    CREDENTIALS_LOCK.synchronize { @credentials ||= resolve_credentials }
   end
 
   def resolve_credentials
@@ -111,12 +114,15 @@ module Asc
   end
 
   def token
-    now = Time.now.to_i
-    if @token.nil? || now > @token_at + 900
-      @token = jwt(credentials, now)
-      @token_at = now
+    TOKEN_LOCK.synchronize do
+      now = Time.now.to_i
+      if @token.nil? || now > @token_at + 900
+        fresh = jwt(credentials, now)
+        @token_at = now
+        @token = fresh
+      end
+      @token
     end
-    @token
   end
 
   def enc(value)
@@ -145,8 +151,21 @@ module Asc
       end
       raise HttpError.new(code, res.body) unless code.between?(200, 299)
 
-      return res.body.to_s.empty? ? nil : JSON.parse(res.body)
+      return nil if res.body.to_s.empty?
+
+      return parse_response(method, code, res.body)
     end
+  end
+
+  # A write that Apple accepted stays a success even when the body is not JSON
+  # (a proxy page, say), so nobody retries it. A GET must return JSON: a page
+  # without `data` would otherwise read as an empty list.
+  def parse_response(method, code, body)
+    JSON.parse(body)
+  rescue JSON::ParserError
+    raise Error, "HTTP #{code}: the response is not JSON" if method.to_s == 'get'
+
+    { 'note' => "HTTP #{code}, the request succeeded but the response is not JSON", 'body' => body.to_s[0, 500] }
   end
 
   def http_call(uri, method, body)
@@ -194,7 +213,11 @@ module Asc
     return usage('need a method and a path') unless %w[GET POST PATCH DELETE].include?(method) && target
     return usage('refusing to write without --write; add it only after the user approved the Price Proposal') if method != 'GET' && !flags.include?('--write')
 
-    payload = body && JSON.parse(body.start_with?('@') ? File.read(body[1..-1]) : body)
+    begin
+      payload = body && JSON.parse(body.start_with?('@') ? File.read(body[1..-1]) : body)
+    rescue JSON::ParserError, Errno::ENOENT => e
+      return usage("bad request body (#{e.class})")
+    end
     result = if method == 'GET' && flags.include?('--paginate')
                paginate(target)
              else
@@ -207,8 +230,6 @@ module Asc
     puts "HTTP #{e.code}"
     puts e.message
     1
-  rescue JSON::ParserError, Errno::ENOENT => e
-    usage("bad request body (#{e.class})")
   rescue Error => e
     warn "ERROR: #{e.message}"
     2

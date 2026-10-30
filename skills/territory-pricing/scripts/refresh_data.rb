@@ -108,6 +108,21 @@ module DataSources
                            .reject { |c| c['region']['id'] == 'NA' }.map { |c| c['id'] }.to_set
   end
 
+  # Fetches and writes every source on its own, so one broken source does not
+  # stop the others. -> names of the sources that failed
+  def refresh_all(out = $stdout)
+    %i[big_mac ppp gni].each_with_object([]) do |name, failed|
+      begin
+        values, meta = send("fetch_#{name}")
+        write_snapshot(name, values, meta['as_of'])
+        out.puts "#{name}: #{values.size} countries, as of #{meta['as_of']}"
+      rescue StandardError => e
+        failed << name
+        out.puts "#{name}: FAILED (#{e.class}: #{e.message}); snapshot left unchanged"
+      end
+    end
+  end
+
   def write_snapshot(name, values, as_of)
     File.write(File.join(Snapshots::DATA_DIR, Snapshots::FILES.fetch(name)), CSV.generate do |csv|
       csv << %w[iso_a3 value as_of]
@@ -116,13 +131,4 @@ module DataSources
   end
 end
 
-if $PROGRAM_NAME == __FILE__
-  %i[big_mac ppp gni].each do |name|
-    values, meta = DataSources.send("fetch_#{name}")
-    DataSources.write_snapshot(name, values, meta['as_of'])
-    puts "#{name}: #{values.size} countries, as of #{meta['as_of']}"
-  rescue StandardError => e
-    warn "#{name}: FAILED (#{e.class}: #{e.message}); snapshot left unchanged"
-    exit 1
-  end
-end
+exit(DataSources.refresh_all.empty? ? 0 : 1) if $PROGRAM_NAME == __FILE__

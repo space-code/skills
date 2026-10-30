@@ -85,7 +85,7 @@ if opts[:rebuild]
     e.problems.each { |line| warn "  #{line}" }
     exit 2
   end
-  proposal['meta']['options'] = popts.reject { |k, _| %i[band_ratios tier_ratios endings_rules].include?(k) }
+  proposal['meta']['options'] = Pricing.persisted_options(popts)
   File.write(proposal_path, JSON.pretty_generate(proposal))
   File.write(csv_path, Pricing.to_csv(proposal['rows']))
   print_summary(proposal['meta'], proposal['rows'])
@@ -123,7 +123,7 @@ end
 rows = Pricing.build_proposal(inputs, opts[:strategy], data, popts)
 meta = { 'product' => input['product'], 'strategy' => opts[:strategy], 'base_territory' => base,
          'created_at' => Time.now.utc.iso8601, 'data' => provenance,
-         'options' => popts.reject { |k, _| %i[band_ratios tier_ratios endings_rules].include?(k) } }
+         'options' => Pricing.persisted_options(popts) }
 points = inputs.map { |t| [t['territory'], t['points'] || []] }.to_h
 File.write(proposal_path, JSON.pretty_generate('meta' => meta, 'rows' => rows, 'points' => points))
 File.write(csv_path, Pricing.to_csv(rows))

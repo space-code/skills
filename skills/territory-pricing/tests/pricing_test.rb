@@ -320,5 +320,58 @@ class PricingTest < Minitest::Test
     assert_equal 19_000.0, pick(19_100, [18_900, 19_000, 19_100, 19_200], 'KRW', SHIPPED)[0], 'KRW prefers round thousands'
     assert_equal 9.9, pick(9.8, [9.5, 9.8, 9.9, 10.0], 'CHF', SHIPPED)[0], 'CHF uses .90'
   end
-end
 
+  # ---- second review ----------------------------------------------------
+
+  def test_an_untouched_skipped_row_survives_a_rebuild_of_another_row
+    inputs = [input('BRA', 10.0, points(5), 'available' => false, 'current_point_id' => 'cur'),
+              input('IND', 10.0, points(3, 6, 10), 'current' => 10.0)]
+    rows = Pricing.build_proposal(inputs, 'gni_bands', DATA, OPTS)
+    out = Pricing.apply_csv_edits(rows, edit_csv(rows, 'IND' => '3'), { 'BRA' => points(5, 9.5), 'IND' => points(3, 6, 10) }, OPTS)
+    bra = out.find { |r| r['territory'] == 'BRA' }
+    assert Pricing.skipped?(bra)
+    assert_equal 'unavailable', bra['note']
+    assert_equal 'cur', bra['price_point_id']
+    refute Pricing.changed?(bra)
+    assert_equal 3.0, out.find { |r| r['territory'] == 'IND' }['proposed']
+  end
+
+  def test_a_three_decimal_price_written_by_the_script_is_left_alone
+    rows = Pricing.build_proposal([input('KWT', 1.099, points(1.099, 1.5), 'current' => 1.099),
+                                   input('IND', 10.0, points(3, 6, 10), 'current' => 10.0)], 'equalization', DATA, OPTS)
+    pts = { 'KWT' => points(1.099, 1.5, 999), 'IND' => points(3, 6, 10) }
+    [edit_csv(rows, 'IND' => '3'), edit_csv(rows, 'IND' => '3', 'KWT' => '1,099')].each do |csv|
+      kwt = Pricing.apply_csv_edits(rows, csv, pts, OPTS).find { |r| r['territory'] == 'KWT' }
+      assert_equal 1.099, kwt['proposed']
+      assert_equal 'equalization', kwt['ratio_source']
+    end
+  end
+
+  def test_parse_price_resolves_three_digits_by_the_row
+    assert_equal 1.099, Pricing.parse_price('1.099', near: 1.2)
+    assert_equal 1099.0, Pricing.parse_price('1.099', near: 1300)
+    assert_equal 1099.0, Pricing.parse_price('1.099')
+    assert_equal 1.299, Pricing.parse_price('1,299', near: 1.3)
+    assert_equal 9.9, Pricing.parse_price('9,90', near: 1000), 'two decimals are never ambiguous'
+  end
+
+  def test_a_free_point_is_never_chosen
+    assert_equal 0.29, Pricing.nearest_point(0.09, points(0, 0.29, 0.39))['price']
+    price, = pick(0.09, [0, 0.29, 0.39], 'USD')
+    assert_equal 0.29, price
+    row = Pricing.build_row(input('IND', 1.0, points(0), 'current_point_id' => 'keep'), 'ppp', DATA, OPTS)
+    assert_equal 'no paid price points', row['note']
+    assert_equal 'keep', row['price_point_id']
+  end
+
+  def test_the_base_ignores_a_free_point_too
+    row = Pricing.build_row(input('USA', 0.29, points(0, 0.29)), 'gni_bands', DATA, OPTS)
+    assert_equal 0.29, row['proposed']
+  end
+
+  def test_persisted_options_drop_the_transient_keys
+    kept = Pricing.persisted_options(CHARM)
+    Pricing::TRANSIENT_OPTIONS.each { |key| refute kept.key?(key), key }
+    assert_equal 'charm', kept[:endings]
+  end
+end

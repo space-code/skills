@@ -82,4 +82,55 @@ class AscTest < Minitest::Test
     assert_equal 2, run_asc('GET', '/v1/apps', '--bogus').last.exitstatus
     assert_equal 2, run_asc('PUT', '/v1/apps', '--write').last.exitstatus
   end
+
+  FakeResponse = Struct.new(:code, :body) do
+    def [](_header)
+      nil
+    end
+  end
+
+  def with_stub(name, impl)
+    original = Asc.method(name)
+    Asc.singleton_class.send(:define_method, name, &impl)
+    yield
+  ensure
+    Asc.singleton_class.send(:define_method, name, original)
+  end
+
+  def test_the_token_is_signed_once_when_threads_race
+    calls = Queue.new
+    Asc.instance_variable_set(:@token, nil)
+    Asc.instance_variable_set(:@token_at, nil)
+    with_stub(:credentials, proc { :creds }) do
+      with_stub(:jwt, proc { |*| calls << 1; sleep 0.05; "token-#{calls.size}" }) do
+        tokens = Array.new(20) { Thread.new { Asc.token } }.map(&:value)
+        assert_equal 1, calls.size
+        assert_equal ['token-1'], tokens.uniq
+      end
+    end
+  ensure
+    Asc.instance_variable_set(:@token, nil)
+    Asc.instance_variable_set(:@token_at, nil)
+  end
+
+  def test_an_accepted_write_with_a_non_json_body_is_still_a_success
+    with_stub(:http_call, proc { |*| FakeResponse.new('201', '<html>proxy</html>') }) do
+      result = Asc.request(:post, '/v1/appPriceSchedules', {})
+      assert_includes result['note'], 'succeeded'
+      assert_includes result['body'], 'proxy'
+    end
+  end
+
+  def test_a_get_with_a_non_json_body_is_an_error
+    with_stub(:http_call, proc { |*| FakeResponse.new('200', '<html>proxy</html>') }) do
+      assert_raises(Asc::Error) { Asc.request(:get, '/v1/apps') }
+    end
+  end
+
+  def test_a_malformed_request_body_is_refused_before_any_request
+    _, err, status = run_asc('POST', '/v1/x', '{bad', '--write')
+    assert_equal 2, status.exitstatus
+    assert_includes err, 'bad request body'
+    refute_includes err, 'AuthKey', 'no key lookup for a body that cannot be sent'
+  end
 end

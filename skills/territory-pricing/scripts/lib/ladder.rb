@@ -21,7 +21,7 @@ module Ladder
     unknown = products.reject { |p| MONTHS.key?(p['period']) || p['period'] == LIFETIME }
     raise ArgumentError, "unknown period #{unknown.first['period'].inspect} of #{unknown.first['name']}" unless unknown.empty?
 
-    subs = products.select { |p| MONTHS.key?(p['period']) }.sort_by { |p| MONTHS[p['period']] }
+    subs = products.select { |p| MONTHS.key?(p['period']) }.sort_by { |p| [MONTHS[p['period']], p['name'].to_s] }
     lifetimes = products.select { |p| p['period'] == LIFETIME }
     result = { 'violations' => [], 'checked' => 0, 'skipped' => 0 }
     products.flat_map { |p| p['prices'].keys }.uniq.sort.each do |territory|
@@ -37,8 +37,10 @@ module Ladder
     result
   end
 
+  # Every pair of subscriptions with different periods, not only neighbours:
+  # with two monthly plans both must be compared with the yearly one.
   def compare_subscriptions(subs, territory)
-    subs.select { |p| p['prices'][territory] }.each_cons(2).flat_map do |short, long|
+    subs.select { |p| p['prices'][territory] }.combination(2).flat_map do |short, long|
       next [] if MONTHS[short['period']] == MONTHS[long['period']]
 
       s = short['prices'][territory]

@@ -160,4 +160,15 @@ class LadderTest < Minitest::Test
   def test_cli_needs_two_proposals
     assert_equal 2, run_ladder('only-one.json').last.exitstatus
   end
+
+  def test_two_plans_of_one_period_are_both_compared_with_the_longer_one
+    a = product('monthly A', 'ONE_MONTH', 'USA' => 10.0)
+    b = product('monthly B', 'ONE_MONTH', 'USA' => 5.0)
+    y = product('yearly', 'ONE_YEAR', 'USA' => 70.0) # 5.83 a month, dearer than B
+    [[a, b, y], [b, a, y], [y, b, a]].each do |order|
+      found = Ladder.check(order, min_lifetime_years: 1.0)['violations']
+      assert(found.any? { |v| v['rule'] == 'longer_period_costs_more_per_month' && v['detail'].include?('monthly B') },
+             order.map { |p| p['name'] }.join(', '))
+    end
+  end
 end

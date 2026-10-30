@@ -22,6 +22,9 @@ module Pricing
     endings_rules: {}
   }.freeze
 
+  # Options too large or too internal to store in proposal.json meta.
+  TRANSIENT_OPTIONS = %i[band_ratios tier_ratios endings_rules].freeze
+
   ENDING_MODES = %w[none charm].freeze
   # Cent-based currencies without a rule of their own like .99 and .49.
   DEFAULT_CENT_ENDINGS = [99, 49].freeze
@@ -43,6 +46,10 @@ module Pricing
 
   def options(overrides = {})
     DEFAULT_OPTIONS.merge(overrides)
+  end
+
+  def persisted_options(opts)
+    opts.reject { |k, _| TRANSIENT_OPTIONS.include?(k) }
   end
 
   # -> [ratio, source]; ratio multiplies the equalized local price.
@@ -96,8 +103,14 @@ module Pricing
   end
 
   # Nearest price point; on a tie the cheaper one wins.
+  # Nearest paid price point (a 0.00 point would make the product free); on a
+  # tie the cheaper one wins.
   def nearest_point(target, points)
-    points.min_by { |p| [(p['price'] - target).abs, p['price']] }
+    paid(points).min_by { |p| [(p['price'] - target).abs, p['price']] }
+  end
+
+  def paid(points)
+    points.select { |p| p['price'].to_f.positive? }
   end
 
   # Prices in effect can sit on legacy price points that Apple no longer
@@ -123,21 +136,25 @@ module Pricing
     return skip(row, 'no equalized price') unless input['equalized']
     return skip(row, 'no price points') if (input['points'] || []).empty?
 
-    ratio, source = if input['territory'] == opts[:base_territory]
-                      [1.0, 'base']
-                    else
-                      ratio_for(strategy, input['territory'], data, opts)
-                    end
-    applied = source == 'base' ? ratio : clamp_ratio(ratio, opts)
+    points = paid(input['points'])
+    return skip(row, 'no paid price points') if points.empty?
+    return base_row(row, input['equalized'], points, opts) if input['territory'] == opts[:base_territory]
+
+    ratio, source = ratio_for(strategy, input['territory'], data, opts)
+    applied = clamp_ratio(ratio, opts)
     target = input['equalized'] * applied
-    point, note = if source == 'base'
-                    [nearest_point(target, input['points']), '']
-                  else
-                    pick_point(target, input['points'], input['currency'], opts)
-                  end
+    point, note = pick_point(target, points, input['currency'], opts)
     row.merge!('ratio_source' => source, 'ratio' => applied.round(4), 'clamped' => applied != ratio,
                'target' => target.round(2), 'price_point_id' => point['id'], 'proposed' => point['price'], 'note' => note)
     finish(row, opts)
+  end
+
+  # Every equalized price was derived from the base price, so the base keeps it:
+  # no strategy ratio, no clamp, no endings.
+  def base_row(row, equalized, points, opts)
+    point = nearest_point(equalized, points)
+    finish(row.merge('ratio_source' => 'base', 'ratio' => 1.0, 'clamped' => false, 'target' => equalized.round(2),
+                     'price_point_id' => point['id'], 'proposed' => point['price']), opts)
   end
 
   # Nearest price point, or with endings 'charm' the nearest one whose ending
@@ -156,7 +173,7 @@ module Pricing
     nice = points.select { |p| p['price'].between?(lo, hi) && charm?(p['price'], currency, whole, opts) }
     return [nearest, "no charm ending within #{(tol * 100).round}%"] if nice.empty?
 
-    [nice.min_by { |p| [(p['price'] - target).abs, p['price']] }, '']
+    [nearest_point(target, nice), '']
   end
 
   # Is the price customary for the currency? A currency rule is
@@ -238,23 +255,26 @@ module Pricing
     end
   end
 
-  # '9,90', '$4.99', '1,299.00', '1.299,00', '1 299' -> 1299.0 etc.; nil when
-  # unreadable or not positive. The last separator is the decimal one, except
-  # a lone separator with exactly three digits after it ('1,299'): thousands.
-  def parse_price(raw)
+  # '9,90', '$4.99', '1,299.00', '1.299,00', '1 299' -> Float; nil when unreadable
+  # or not positive. The last separator is the decimal one. A lone separator
+  # with exactly three digits after it ('1.099') is ambiguous: with `near` (the
+  # row's price) the reading closer to it wins, without it thousands (1099).
+  def parse_price(raw, near: nil)
     s = raw.to_s.gsub(/[^\d.,]/, '')
     return nil unless s =~ /\d/
 
     last = [s.rindex(','), s.rindex('.')].compact.max
-    value = if last.nil?
-              s
-            elsif s[(last + 1)..-1].length == 3 && s.count(',.') == 1
-              s.delete(',.')
-            else
-              "#{s[0...last].delete(',.')}.#{s[(last + 1)..-1]}"
-            end
-    price = Float(value, exception: false)
-    price&.positive? ? price : nil
+    readings = if last.nil?
+                 [s]
+               elsif s[(last + 1)..-1].length == 3 && s.count(',.') == 1
+                 [s.delete(',.'), s.tr(',', '.')]
+               else
+                 ["#{s[0...last].delete(',.')}.#{s[(last + 1)..-1]}"]
+               end
+    values = readings.map { |v| Float(v, exception: false) }.compact.select(&:positive?)
+    return values.first unless near&.positive? && values.size > 1
+
+    values.min_by { |v| Math.log(v / near).abs }
   end
 
   # Re-snaps hand-edited `proposed` values of a proposal.csv onto real price
@@ -262,24 +282,42 @@ module Pricing
   # Unreadable cells raise EditError before anything is changed.
   # points_by_territory: {'BRA' => [{'id','price'}, ...]}
   def apply_csv_edits(rows, csv_text, points_by_territory, opts)
-    edited = CSV.parse(csv_text, headers: true).each_with_object({}) { |r, h| h[r['territory']] = r['proposed'].to_s.strip }
-    problems = edited.reject { |_, raw| raw.empty? || parse_price(raw) }.map { |t, raw| "#{t}: '#{raw}'" }
+    by_territory = rows.map { |r| [r['territory'], r] }.to_h
+    cells = CSV.parse(csv_text, headers: true).each_with_object({}) { |r, h| h[r['territory']] = r['proposed'].to_s.strip }
+    touched = cells.reject { |t, raw| untouched?(by_territory[t], raw) }
+    problems = touched.reject { |t, raw| raw.empty? || parse_price(raw, near: near_price(by_territory[t])) }
+                      .map { |t, raw| "#{t}: '#{raw}'" }
     raise EditError, problems unless problems.empty?
 
     rows.map do |row|
-      raw = edited[row['territory']]
+      raw = touched[row['territory']]
       next row if raw.nil?
       next keep_current(row, opts) if raw.empty?
 
-      value = parse_price(raw)
-      next row if row['proposed'] && (value - row['proposed']).abs < 0.005 && !skipped?(row)
-
+      value = parse_price(raw, near: near_price(row))
       point = nearest_point(value, points_by_territory.fetch(row['territory'], []))
       next row.merge('note' => 'no price points for manual edit') unless point
 
       finish(row.merge('price_point_id' => point['id'], 'proposed' => point['price'], 'ratio_source' => 'manual',
                        'clamped' => false, 'ratio' => nil, 'target' => value.round(2), 'note' => 'edited by user'), opts)
     end
+  end
+
+  # A cell is untouched when it still holds what to_csv wrote, or the same
+  # number in another notation. Untouched rows, skipped ones included, are kept.
+  def untouched?(row, raw)
+    return true if row.nil?
+
+    written = row['proposed'].to_s
+    return true if raw == written
+    return false if raw.empty? || written.empty?
+
+    value = parse_price(raw, near: row['proposed'])
+    !value.nil? && (value - row['proposed']).abs < 0.005
+  end
+
+  def near_price(row)
+    row && (row['proposed'] || row['current'])
   end
 
   def keep_current(row, opts)

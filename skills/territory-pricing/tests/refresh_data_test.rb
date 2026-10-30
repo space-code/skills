@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'test_helper'
+require 'stringio'
 require_relative '../scripts/refresh_data'
 
 # refresh_data.rb with the network stubbed.
@@ -40,5 +41,23 @@ class RefreshDataTest < Minitest::Test
   def test_snapshot_paths_come_from_the_shared_module
     assert_equal Snapshots::DATA_DIR, File.expand_path('../references/data', __dir__)
     assert_equal %i[big_mac ppp gni], Snapshots::FILES.keys
+  end
+
+  def test_one_failed_source_does_not_stop_the_others
+    written = []
+    stubs = {
+      fetch_big_mac: proc { raise 'HTTP 404 from raw.githubusercontent.com' },
+      fetch_ppp: proc { [{ 'BRA' => 0.46 }, { 'as_of' => 2025 }] },
+      fetch_gni: proc { [{ 'BRA' => 10_550.0 }, { 'as_of' => 2025 }] },
+      write_snapshot: proc { |name, *| written << name }
+    }
+    originals = stubs.keys.map { |name| [name, DataSources.method(name)] }.to_h
+    stubs.each { |name, impl| DataSources.singleton_class.send(:define_method, name, &impl) }
+    out = StringIO.new
+    assert_equal [:big_mac], DataSources.refresh_all(out)
+    assert_equal %i[ppp gni], written
+    assert_includes out.string, 'big_mac: FAILED'
+  ensure
+    originals.each { |name, method| DataSources.singleton_class.send(:define_method, name, method) }
   end
 end
