@@ -76,14 +76,21 @@ begin
   base_entry = snap['prices'][base]
   abort "ERROR: no price in effect in base territory #{base}; pick another with --base" unless base_entry && base_entry['point_id']
 
+  # The price in effect may sit on a legacy price point that Apple no longer
+  # lists; equalizations only accept a listed one, so resolve it by price.
+  points = { base => product.price_points(base) }
+  base_point_id = Pricing.resolve_point_id(base_entry['point_id'], base_entry['price'], points[base])
+  abort "ERROR: the #{base} price #{base_entry['price']} matches no current price point; pick another with --base" unless points[base].any? { |p| p['id'] == base_point_id }
+
   warn "reading equalized prices from #{base}..."
-  equalized = product.equalized(base_entry['point_id'])
+  equalized = product.equalized(base_point_id)
   equalized[base] ||= { 'price' => base_entry['price'], 'currency' => base_entry['currency'] }
   availability = product.available_territories
 
   territories = equalized.keys.sort
-  points = {}
   territories.each_with_index do |t, i|
+    next if points.key?(t)
+
     warn format('reading price points [%<i>d/%<n>d] %<t>s', i: i + 1, n: territories.size, t: t)
     points[t] = product.price_points(t)
   end
@@ -105,7 +112,8 @@ begin
   inputs = territories.map do |t|
     cur = snap['prices'][t] || {}
     { 'territory' => t, 'currency' => equalized[t]['currency'] || cur['currency'], 'current' => cur['price'],
-      'current_point_id' => cur['point_id'], 'equalized' => equalized[t]['price'],
+      'current_point_id' => Pricing.resolve_point_id(cur['point_id'], cur['price'], points[t]),
+      'equalized' => equalized[t]['price'],
       'available' => availability.nil? || availability.include?(t), 'points' => points[t] }
   end
   rows = Pricing.build_proposal(inputs, opts[:strategy], data, popts)

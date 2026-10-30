@@ -114,6 +114,21 @@ class PricingTest < Minitest::Test
     assert Pricing.changed?(rows.first)
   end
 
+  def test_legacy_current_point_is_resolved_by_price
+    listed = points(9.99, 11.99, 14.99)
+    assert_equal 'pp1', Pricing.resolve_point_id('legacy-24', 11.99, listed)
+    assert_equal 'pp1', Pricing.resolve_point_id('pp1', 11.99, listed), 'a listed id is kept'
+    assert_equal 'legacy-24', Pricing.resolve_point_id('legacy-24', 12.49, listed), 'no price match keeps the id'
+    assert_nil Pricing.resolve_point_id(nil, nil, listed)
+  end
+
+  def test_unchanged_price_on_a_legacy_point_is_not_a_change
+    listed = points(6, 10)
+    resolved = Pricing.resolve_point_id('legacy', 10.0, listed)
+    rows = Pricing.build_proposal([input('BRA', 10.0, listed, 'current_point_id' => resolved)], 'equalization', DATA, OPTS)
+    refute Pricing.changed?(rows.first)
+  end
+
   def test_split_entries_separates_current_from_scheduled
     entries = [
       { 'start_date' => nil, 'end_date' => '2026-01-01', 'point_id' => 'a' },

@@ -93,6 +93,16 @@ module Pricing
     points.min_by { |p| [(p['price'] - target).abs, p['price']] }
   end
 
+  # Prices in effect can sit on legacy price points that Apple no longer
+  # lists (and whose equalizations 404). Map such a point onto the listed
+  # point with the same price; otherwise keep the id as is.
+  def resolve_point_id(point_id, price, points)
+    return point_id if point_id.nil? || points.any? { |p| p['id'] == point_id } || price.nil?
+
+    match = points.min_by { |p| (p['price'] - price).abs }
+    match && (match['price'] - price).abs < 0.005 ? match['id'] : point_id
+  end
+
   # entries: {'territory','point_id','price','start_date','end_date',...}
   # -> [price in effect today or nil, scheduled future changes]
   def split_entries(entries, today)
