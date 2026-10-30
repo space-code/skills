@@ -70,7 +70,10 @@ flag changes above 25%. Defaults are fine unless the user objects.
 ### 4. Collect the data (read-only) and build the Price Proposal
 
 Follow the playbook to collect, per territory: current price and price point, equalized price, and the list
-of price points. Save it as `plan-input.json`, then:
+of price points. Reading the price points is about 700 requests: use `scripts/collect_points.rb` in short
+batches (run it again until it prints `done`, report progress after each run). Never run one long command
+or your own sequential loop: the shell kills a command after 10 minutes and everything collected is lost.
+Save the result as `plan-input.json`, then:
 
 ```bash
 ruby "$SKILL_DIR/scripts/plan.rb" --input "$RUN/plan-input.json" --out "$RUN" --strategy <strategy> --base <TERRITORY>

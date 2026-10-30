@@ -42,8 +42,8 @@ Build `plan-input.json` (format in `scripts/plan.rb`'s header):
    deprecated").
 3. Read the equalizations of that base point: `equalized` and `currency` per territory (the base territory
    itself may be missing; use its current price).
-4. For every territory read its price points (one request per territory, about 175, paginated):
-   `points: [{"id", "price"}]` with `price` as a number.
+4. For every territory read its price points: `points: [{"id", "price"}]` with `price` as a number. This is
+   the slow part, see "Reading price points in batches" below. Do not write your own sequential loop.
 5. `available` is true unless you verified the territory is not sold. **Do not mark territories unavailable
    from an empty or failed availability read**: an earlier version did exactly that and marked all 175
    territories unavailable. Availability endpoints (**unverified**): app
@@ -53,6 +53,30 @@ Build `plan-input.json` (format in `scripts/plan.rb`'s header):
    If you cannot read availability reliably, leave `available` true and tell the user.
 
 Put `"product": {"kind", "id", "name"}` and `"base_territory"` at the top of the file.
+
+### Reading price points in batches
+
+A subscription has about 800 price points per territory and Apple returns 200 per page, so the sweep is about
+175 x 4 = 700 requests, roughly 12 minutes one after another. One long command is killed by the shell after
+10 minutes and loses everything, so sweep once, in short resumable commands, and slice locally afterwards.
+
+1. Write the territory codes you need (the keys of the current prices) to `$RUN/territories.json`.
+2. Run, repeating until it prints `done` (each run reads one batch of 40 territories in 6 parallel threads,
+   about 30 seconds, and saves every territory to `$RUN/points/<TERRITORY>.json`):
+
+   ```bash
+   ruby "$SKILL_DIR/scripts/collect_points.rb" "$RUN" /v1/subscriptions/<ID>/pricePoints
+   ```
+
+   Path per kind: `/v1/apps/<ID>/appPricePoints`, `/v2/inAppPurchases/<ID>/pricePoints`.
+3. After every run tell the user the progress line (`80/175 territories saved`). If a run reports `failed:`
+   territories, run it again: finished territories are skipped, only the failed ones are retried. Persistent
+   failures (HTTP 401/403) are not retried by waiting; report them.
+4. Build `plan-input.json` from the saved files with a short script, then call `plan.rb`. Never re-read the API
+   because the analysis changed; answer follow-ups from the files.
+
+Budget: Apple limits requests per key (about 3600 an hour, unverified), so a full sweep uses a noticeable part of
+it. Reuse `$RUN/points/` when you re-run a plan for the same product on the same day; do not sweep twice.
 
 ## Writing
 
