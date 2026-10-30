@@ -9,7 +9,7 @@ on:
       - "skills/**"
 
 concurrency:
-  group: lint-${{ github.head_ref }}
+  group: lint-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:

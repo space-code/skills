@@ -50,6 +50,10 @@ class AscTest < Minitest::Test
     assert_equal '/v1/x?filter%5Bterritory%5D=USA&limit=200', Asc.path('/v1/x', 'filter[territory]' => 'USA', 'limit' => 200)
   end
 
+  def test_path_extends_an_existing_query_with_an_ampersand
+    assert_equal '/v1/x?include=territory&limit=200', Asc.path('/v1/x?include=territory', 'limit' => 200)
+  end
+
   def test_token_is_never_sent_to_another_host
     assert_raises(Asc::Error) { Asc.request(:get, 'https://example.com/v1/apps') }
   end

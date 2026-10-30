@@ -110,16 +110,6 @@ module Pricing
     match && (match['price'] - price).abs < 0.005 ? match['id'] : point_id
   end
 
-  # entries: {'territory','point_id','price','start_date','end_date',...}
-  # -> [price in effect today or nil, scheduled future changes]
-  def split_entries(entries, today)
-    live = entries.select do |e|
-      (e['start_date'].nil? || e['start_date'] <= today) && (e['end_date'].nil? || e['end_date'] > today)
-    end
-    scheduled = entries.select { |e| e['start_date'] && e['start_date'] > today }
-    [live.max_by { |e| e['start_date'] || '' }, scheduled.sort_by { |e| e['start_date'] }]
-  end
-
   # input: {'territory','currency','current','current_point_id','equalized','available','points'}
   def build_row(input, strategy, data, opts)
     row = {
@@ -138,7 +128,7 @@ module Pricing
                     else
                       ratio_for(strategy, input['territory'], data, opts)
                     end
-    applied = clamp_ratio(ratio, opts)
+    applied = source == 'base' ? ratio : clamp_ratio(ratio, opts)
     target = input['equalized'] * applied
     point, note = if source == 'base'
                     [nearest_point(target, input['points']), '']
@@ -187,8 +177,16 @@ module Pricing
     (price.round % (10**[Math.log10(price).floor - 1, 0].max)).zero?
   end
 
+  # A skipped row is not repriced, and it keeps its current price point: an
+  # app or in-app purchase schedule lists every manual price, so a row
+  # without one would drop the territory back to Apple's automatic price.
+  # ratio_source stays nil, which is what marks the row as skipped.
   def skip(row, note)
-    row.merge('note' => note)
+    row.merge('note' => note, 'price_point_id' => row['current_point_id'], 'proposed' => row['current'])
+  end
+
+  def skipped?(row)
+    row['ratio_source'].nil?
   end
 
   def finish(row, opts)
@@ -210,7 +208,7 @@ module Pricing
   end
 
   def summary(rows)
-    priced = rows.select { |r| r['proposed'] }
+    priced = rows.reject { |r| skipped?(r) }
     changed = rows.select { |r| changed?(r) }
     {
       'territories' => rows.size,
@@ -219,7 +217,7 @@ module Pricing
       'decreases' => changed.count { |r| r['change_pct'] && r['change_pct'] < 0 },
       'increases' => changed.count { |r| r['change_pct'] && r['change_pct'] > 0 },
       'flagged' => rows.count { |r| !r['flag'].to_s.empty? },
-      'skipped' => rows.count { |r| r['proposed'].nil? },
+      'skipped' => rows.count { |r| skipped?(r) },
       'sources' => priced.each_with_object(Hash.new(0)) { |r, h| h[r['ratio_source']] += 1 }
     }
   end
@@ -231,27 +229,63 @@ module Pricing
     end
   end
 
+  class EditError < StandardError
+    attr_reader :problems
+
+    def initialize(problems)
+      @problems = problems
+      super("#{problems.size} cell(s) in proposal.csv cannot be read as a price")
+    end
+  end
+
+  # '9,90', '$4.99', '1,299.00', '1.299,00', '1 299' -> 1299.0 etc.; nil when
+  # unreadable or not positive. The last separator is the decimal one, except
+  # a lone separator with exactly three digits after it ('1,299'): thousands.
+  def parse_price(raw)
+    s = raw.to_s.gsub(/[^\d.,]/, '')
+    return nil unless s =~ /\d/
+
+    last = [s.rindex(','), s.rindex('.')].compact.max
+    value = if last.nil?
+              s
+            elsif s[(last + 1)..-1].length == 3 && s.count(',.') == 1
+              s.delete(',.')
+            else
+              "#{s[0...last].delete(',.')}.#{s[(last + 1)..-1]}"
+            end
+    price = Float(value, exception: false)
+    price&.positive? ? price : nil
+  end
+
   # Re-snaps hand-edited `proposed` values of a proposal.csv onto real price
   # points. An emptied `proposed` cell means "leave this territory alone".
+  # Unreadable cells raise EditError before anything is changed.
   # points_by_territory: {'BRA' => [{'id','price'}, ...]}
   def apply_csv_edits(rows, csv_text, points_by_territory, opts)
-    edited = CSV.parse(csv_text, headers: true).each_with_object({}) { |r, h| h[r['territory']] = r['proposed'] }
-    rows.map do |row|
-      next row unless edited.key?(row['territory'])
+    edited = CSV.parse(csv_text, headers: true).each_with_object({}) { |r, h| h[r['territory']] = r['proposed'].to_s.strip }
+    problems = edited.reject { |_, raw| raw.empty? || parse_price(raw) }.map { |t, raw| "#{t}: '#{raw}'" }
+    raise EditError, problems unless problems.empty?
 
-      raw = edited[row['territory']].to_s.strip
-      if raw.empty?
-        next row['proposed'].nil? ? row : row.merge('price_point_id' => row['current_point_id'],
-                                                    'proposed' => row['current'], 'flag' => '', 'note' => 'left unchanged by user')
-      end
-      value = Float(raw)
-      next row if row['proposed'] && (value - row['proposed']).abs < 0.005
+    rows.map do |row|
+      raw = edited[row['territory']]
+      next row if raw.nil?
+      next keep_current(row, opts) if raw.empty?
+
+      value = parse_price(raw)
+      next row if row['proposed'] && (value - row['proposed']).abs < 0.005 && !skipped?(row)
 
       point = nearest_point(value, points_by_territory.fetch(row['territory'], []))
       next row.merge('note' => 'no price points for manual edit') unless point
 
       finish(row.merge('price_point_id' => point['id'], 'proposed' => point['price'], 'ratio_source' => 'manual',
-                       'note' => 'edited by user'), opts)
+                       'clamped' => false, 'ratio' => nil, 'target' => value.round(2), 'note' => 'edited by user'), opts)
     end
+  end
+
+  def keep_current(row, opts)
+    return row.merge('note' => 'no current price to keep') if row['current'].nil? || row['current_point_id'].nil?
+
+    finish(row.merge('price_point_id' => row['current_point_id'], 'proposed' => row['current'], 'ratio_source' => 'unchanged',
+                     'clamped' => false, 'ratio' => nil, 'target' => nil, 'note' => 'left unchanged by user'), opts)
   end
 end

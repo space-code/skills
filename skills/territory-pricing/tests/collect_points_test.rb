@@ -82,6 +82,20 @@ class CollectPointsTest < Minitest::Test
     end
   end
 
+  def test_an_unexpected_error_is_reported_like_any_other_failure
+    with_run(%w[USA BAD BRA]) do |dir|
+      Asc.singleton_class.send(:define_method, :paginate) do |target|
+        raise JSON::ParserError, 'unexpected token' if target.include?('territory%5D=BAD')
+
+        { 'data' => [] }
+      end
+      out, status = run_script(dir)
+      assert_equal 1, status
+      assert_includes out, 'failed: BAD: JSON::ParserError: unexpected token'
+      assert_includes out, '2/3 territories saved'
+    end
+  end
+
   def test_a_failed_territory_is_reported_and_the_others_are_kept
     with_run(%w[USA BAD BRA]) do |dir|
       @fail << 'BAD'

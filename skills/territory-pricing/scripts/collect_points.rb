@@ -46,8 +46,8 @@ Array.new(threads) do
         points = page['data'].map { |d| { 'id' => d['id'], 'price' => d.dig('attributes', 'customerPrice').to_f } }
         File.write(File.join(dir, "#{t}.tmp"), JSON.generate(points))
         File.rename(File.join(dir, "#{t}.tmp"), File.join(dir, "#{t}.json"))
-      rescue Asc::Error => e
-        failed << "#{t}: #{e.message}"
+      rescue StandardError => e
+        failed << "#{t}: #{e.is_a?(Asc::Error) ? e.message : "#{e.class}: #{e.message}"}"
       end
     end
   end

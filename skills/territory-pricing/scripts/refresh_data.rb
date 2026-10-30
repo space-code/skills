@@ -11,9 +11,10 @@ require 'json'
 require 'net/http'
 require 'uri'
 require 'time'
+require 'set'
+require_relative 'lib/snapshots'
 
 module DataSources
-  DATA_DIR = File.expand_path('../references/data', __dir__)
   BIG_MAC_URL = 'https://raw.githubusercontent.com/TheEconomist/big-mac-data/master/output-data/big-mac-full-index.csv'
   WORLD_BANK = 'https://api.worldbank.org/v2'
   BIG_MAC_MAX_AGE_YEARS = 3
@@ -92,8 +93,7 @@ module DataSources
 
   # -> {'BRA' => {2024 => value, ...}}, countries only (no aggregates)
   def world_bank(indicator)
-    countries = JSON.parse(get("#{WORLD_BANK}/country?format=json&per_page=400"))[1]
-                    .reject { |c| c['region']['id'] == 'NA' }.map { |c| c['id'] }
+    countries = country_codes
     rows = JSON.parse(get("#{WORLD_BANK}/country/all/indicator/#{indicator}?format=json&per_page=20000&date=#{WB_YEARS}"))[1] || []
     rows.each_with_object({}) do |r, h|
       next unless r['value'] && countries.include?(r['countryiso3code'])
@@ -102,9 +102,14 @@ module DataSources
     end
   end
 
+  # The country list is the same for every indicator: fetch it once.
+  def country_codes
+    @country_codes ||= JSON.parse(get("#{WORLD_BANK}/country?format=json&per_page=400"))[1]
+                           .reject { |c| c['region']['id'] == 'NA' }.map { |c| c['id'] }.to_set
+  end
+
   def write_snapshot(name, values, as_of)
-    file = { big_mac: 'big-mac.csv', ppp: 'ppp.csv', gni: 'gni.csv' }.fetch(name)
-    File.write(File.join(DATA_DIR, file), CSV.generate do |csv|
+    File.write(File.join(Snapshots::DATA_DIR, Snapshots::FILES.fetch(name)), CSV.generate do |csv|
       csv << %w[iso_a3 value as_of]
       values.sort.each { |iso, v| csv << [iso, v.round(6), as_of] }
     end)

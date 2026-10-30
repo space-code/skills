@@ -17,9 +17,8 @@ require 'json'
 require 'csv'
 require 'time'
 require 'pricing'
+require 'snapshots'
 
-DATA_DIR = File.expand_path('../references/data', __dir__)
-SNAPSHOTS = { big_mac: 'big-mac.csv', ppp: 'ppp.csv', gni: 'gni.csv' }.freeze
 NEEDED = { 'big_mac' => %i[big_mac ppp], 'ppp' => %i[ppp], 'gni_bands' => %i[gni] }.freeze
 
 opts = { strategy: 'gni_bands' }
@@ -41,7 +40,7 @@ end.parse!
 abort 'usage: see header of plan.rb' unless opts[:out] && (opts[:input] || opts[:rebuild])
 
 def load_snapshot(name)
-  rows = CSV.read(File.join(DATA_DIR, SNAPSHOTS.fetch(name)), headers: true)
+  rows = CSV.read(File.join(Snapshots::DATA_DIR, Snapshots::FILES.fetch(name)), headers: true)
   [rows.map { |r| [r['iso_a3'], Float(r['value'])] }.to_h, { 'origin' => 'snapshot', 'as_of' => rows.map { |r| r['as_of'] }.max }]
 end
 
@@ -65,8 +64,8 @@ def print_summary(meta, rows)
     puts "#{title}:"
     list.each { |r| puts format('  %-4s %-14s -> %-14s %+6.1f%%  %s', r['territory'], money(r['current'], r['currency']), money(r['proposed'], r['currency']), r['change_pct'] * 100, r['flag']) }
   end
-  skipped = rows.select { |r| r['proposed'].nil? }
-  puts "Skipped: #{skipped.map { |r| "#{r['territory']} (#{r['note']})" }.join(', ')}" unless skipped.empty?
+  skipped = rows.select { |r| Pricing.skipped?(r) }
+  puts "Skipped, current price kept: #{skipped.map { |r| "#{r['territory']} (#{r['note']})" }.join(', ')}" unless skipped.empty?
 end
 
 FileUtils.mkdir_p(opts[:out])
@@ -75,8 +74,17 @@ csv_path = File.join(opts[:out], 'proposal.csv')
 
 if opts[:rebuild]
   proposal = JSON.parse(File.read(proposal_path))
-  popts = Pricing.options(overrides.merge(base_territory: proposal['meta']['base_territory']))
-  proposal['rows'] = Pricing.apply_csv_edits(proposal['rows'], File.read(csv_path), proposal['points'], popts)
+  # same settings as the original run, unless the command line says otherwise
+  stored = (proposal['meta']['options'] || {}).map { |k, v| [k.to_sym, v] }.to_h
+  popts = Pricing.options(stored.merge(overrides).merge(base_territory: proposal['meta']['base_territory']))
+  begin
+    proposal['rows'] = Pricing.apply_csv_edits(proposal['rows'], File.read(csv_path), proposal['points'], popts)
+  rescue Pricing::EditError => e
+    warn "ERROR: #{e.message}; nothing was changed. Fix these cells and run --rebuild again:"
+    e.problems.each { |line| warn "  #{line}" }
+    exit 2
+  end
+  proposal['meta']['options'] = popts.reject { |k, _| %i[band_ratios tier_ratios endings_rules].include?(k) }
   File.write(proposal_path, JSON.pretty_generate(proposal))
   File.write(csv_path, Pricing.to_csv(proposal['rows']))
   print_summary(proposal['meta'], proposal['rows'])
@@ -85,7 +93,7 @@ end
 
 input = JSON.parse(File.read(opts[:input]))
 base = overrides[:base_territory] || input['base_territory'] || 'USA'
-endings_file = opts[:endings_file] || File.join(DATA_DIR, 'endings.json')
+endings_file = opts[:endings_file] || File.join(Snapshots::DATA_DIR, 'endings.json')
 overrides[:endings_rules] = JSON.parse(File.read(endings_file))['currencies']
 popts = Pricing.options(overrides.merge(base_territory: base))
 inputs = input['territories'].map do |t|
@@ -95,7 +103,7 @@ inputs = input['territories'].map do |t|
 end
 abort "ERROR: base territory #{base} is missing from the input" unless inputs.any? { |t| t['territory'] == base }
 
-data = { band1_overrides: JSON.parse(File.read(File.join(DATA_DIR, 'gni-bands.json')))['band1_overrides'] }
+data = { band1_overrides: JSON.parse(File.read(File.join(Snapshots::DATA_DIR, 'gni-bands.json')))['band1_overrides'] }
 provenance = {}
 (NEEDED[opts[:strategy]] || []).each { |name| data[name], provenance[name.to_s] = load_snapshot(name) }
 if opts[:strategy] == 'tiered'
@@ -103,9 +111,12 @@ if opts[:strategy] == 'tiered'
 
   cfg = JSON.parse(File.read(opts[:tiers]))
   data[:tiers] = (cfg['territories'] || {}).map { |t, tier| [t, Integer(tier)] }.to_h
-  tier_ratios = (cfg['tier_ratios'] || {}).map { |k, v| [Integer(k), Float(v)] }.to_h
-  popts = popts.merge(tier_ratios: tier_ratios) unless tier_ratios.empty?
+  # tiers missing from the file keep their default ratio
+  tier_ratios = Pricing::DEFAULT_OPTIONS[:tier_ratios].merge((cfg['tier_ratios'] || {}).map { |k, v| [Integer(k), Float(v)] }.to_h)
+  popts = popts.merge(tier_ratios: tier_ratios)
   popts = popts.merge(default_tier: Integer(cfg['default_tier'])) if cfg['default_tier']
+  unknown = (data[:tiers].values + [popts[:default_tier]]).uniq - tier_ratios.keys
+  abort "ERROR: no ratio for tier #{unknown.join(', ')}; add it to tier_ratios in #{opts[:tiers]}" unless unknown.empty?
 end
 
 rows = Pricing.build_proposal(inputs, opts[:strategy], data, popts)

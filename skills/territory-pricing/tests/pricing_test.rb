@@ -96,10 +96,87 @@ class PricingTest < Minitest::Test
     assert_equal 9.99, row['proposed']
   end
 
-  def test_unavailable_territory_is_skipped
-    row = Pricing.build_row(input('BRA', 10.0, points(5), 'available' => false), 'gni_bands', DATA, OPTS)
-    assert_nil row['proposed']
+  def test_unavailable_territory_is_skipped_and_keeps_its_price
+    row = Pricing.build_row(input('BRA', 10.0, points(5), 'available' => false, 'current_point_id' => 'pp-manual'),
+                            'gni_bands', DATA, OPTS)
+    assert Pricing.skipped?(row)
     assert_equal 'unavailable', row['note']
+    assert_equal 'pp-manual', row['price_point_id'], 'the schedule must not drop a manual price'
+    assert_equal 10.0, row['proposed']
+    refute Pricing.changed?(row)
+  end
+
+  def test_every_skip_reason_keeps_the_current_price
+    [input('BRA', 10.0, []), input('BRA', nil, points(1)), input('BRA', 10.0, points(5), 'available' => false)].each do |i|
+      row = Pricing.build_row(i.merge('current_point_id' => 'keep'), 'ppp', DATA, OPTS)
+      assert_equal 'keep', row['price_point_id'], row['note']
+      refute Pricing.changed?(row), row['note']
+    end
+  end
+
+  def test_a_skipped_row_without_a_current_price_has_nothing_to_keep
+    row = Pricing.build_row(input('BRA', 10.0, [], 'current' => nil, 'current_point_id' => nil), 'ppp', DATA, OPTS)
+    assert_nil row['price_point_id']
+    assert Pricing.skipped?(row)
+  end
+
+  def test_the_base_price_is_never_clamped
+    opts = Pricing.options(clamp_max: 0.9)
+    row = Pricing.build_row(input('USA', 9.99, points(8.99, 9.99)), 'gni_bands', DATA, opts)
+    assert_equal 9.99, row['proposed']
+    refute row['clamped']
+    assert_equal 1.0, row['ratio']
+  end
+
+  def test_parse_price_reads_locale_formats
+    {
+      '9,90' => 9.9, '$4.99' => 4.99, '1,299.00' => 1299.0, '1.299,00' => 1299.0,
+      '1 299' => 1299.0, '1,299' => 1299.0, '12,5' => 12.5, '9990' => 9990.0, '₹499' => 499.0
+    }.each { |raw, price| assert_equal price, Pricing.parse_price(raw), raw }
+    ['abc', '', '0', '-', nil].each { |raw| assert_nil Pricing.parse_price(raw), raw.inspect }
+  end
+
+  def test_a_comma_decimal_edit_is_applied
+    rows = Pricing.build_proposal([input('BRA', 10.0, points(3, 6, 10), 'current' => 10.0)], 'gni_bands', DATA, OPTS)
+    csv = Pricing.to_csv(rows).sub(/,6\.0,-0\.4,/, ',"3,2",-0.4,')
+    out = Pricing.apply_csv_edits(rows, csv, { 'BRA' => points(3, 6, 10) }, OPTS)
+    assert_equal 3.0, out.first['proposed']
+  end
+
+  # sets the `proposed` cell of the given territories in a proposal.csv
+  def edit_csv(rows, edits)
+    table = CSV.parse(Pricing.to_csv(rows), headers: true)
+    table.each { |r| r['proposed'] = edits[r['territory']] if edits.key?(r['territory']) }
+    table.to_csv
+  end
+
+  def test_unreadable_edits_raise_with_every_territory_named_and_change_nothing
+    inputs = [input('BRA', 10.0, points(3, 6, 10), 'current' => 10.0), input('IND', 10.0, points(3, 6, 10), 'current' => 10.0)]
+    rows = Pricing.build_proposal(inputs, 'gni_bands', DATA, OPTS)
+    csv = edit_csv(rows, 'BRA' => 'abc', 'IND' => 'n/a')
+    error = assert_raises(Pricing::EditError) { Pricing.apply_csv_edits(rows, csv, { 'BRA' => points(3, 6, 10) }, OPTS) }
+    assert_equal ["BRA: 'abc'", "IND: 'n/a'"], error.problems
+  end
+
+  def test_an_emptied_cell_leaves_no_stale_numbers
+    rows = Pricing.build_proposal([input('BRA', 10.0, points(3, 6, 10), 'current' => 10.0)], 'gni_bands', DATA, OPTS)
+    csv = Pricing.to_csv(rows).sub(/,6\.0,-0\.4,/, ',,-0.4,')
+    row = Pricing.apply_csv_edits(rows, csv, { 'BRA' => points(3, 6, 10) }, OPTS).first
+    assert_equal 0.0, row['change_pct']
+    assert_equal '', row['flag']
+    assert_nil row['target']
+    assert_equal 'unchanged', row['ratio_source']
+  end
+
+  def test_a_manual_edit_drops_the_clamped_flag
+    data = DATA.merge(ppp: { 'USA' => 1.0, 'XXX' => 0.05 })
+    rows = Pricing.build_proposal([input('XXX', 100.0, points(30, 50, 100))], 'ppp', data, OPTS)
+    assert rows.first['clamped']
+    csv = Pricing.to_csv(rows).sub(/,30\.0,-0\.7,/, ',50,-0.7,')
+    row = Pricing.apply_csv_edits(rows, csv, { 'XXX' => points(30, 50, 100) }, OPTS).first
+    refute row['clamped']
+    refute_includes row['flag'], 'clamped'
+    assert_equal 50.0, row['target']
   end
 
   def test_territory_without_price_points_or_equalization_is_skipped
@@ -127,18 +204,6 @@ class PricingTest < Minitest::Test
     resolved = Pricing.resolve_point_id('legacy', 10.0, listed)
     rows = Pricing.build_proposal([input('BRA', 10.0, listed, 'current_point_id' => resolved)], 'equalization', DATA, OPTS)
     refute Pricing.changed?(rows.first)
-  end
-
-  def test_split_entries_separates_current_from_scheduled
-    entries = [
-      { 'start_date' => nil, 'end_date' => '2026-01-01', 'point_id' => 'a' },
-      { 'start_date' => nil, 'end_date' => nil, 'point_id' => 'b' },
-      { 'start_date' => '2026-05-01', 'end_date' => nil, 'point_id' => 'c' },
-      { 'start_date' => '2099-01-01', 'end_date' => nil, 'point_id' => 'd' }
-    ]
-    current, scheduled = Pricing.split_entries(entries, '2026-10-30')
-    assert_equal 'c', current['point_id']
-    assert_equal ['d'], scheduled.map { |e| e['point_id'] }
   end
 
   def test_csv_round_trip_and_manual_edit_resnaps

@@ -11,8 +11,8 @@ $A POST /v1/subscriptionPrices @body.json --write           # writes need --writ
 ```
 
 Brackets in query strings must be percent-encoded: `filter%5Bterritory%5D=USA`. In Ruby,
-`require "#{ENV['SKILL_DIR']}/scripts/asc"` gives you `Asc.request`, `Asc.paginate` and `Asc.path` for a
-throwaway collection script (keep it in the scratchpad, not in the repo).
+`require "#{ENV['SKILL_DIR']}/scripts/asc"` gives you `Asc.request`, `Asc.paginate`, `Asc.path` (adds `&` when the
+base already has a query) and `Asc.index_included` for a throwaway collection script (keep it in the scratchpad, not in the repo).
 
 ## Endpoints
 
@@ -83,8 +83,9 @@ it. Reuse `$RUN/points/` when you re-run a plan for the same product on the same
 Only after consent, always with `--write`; save every request body in the run folder.
 
 **App and in-app purchase: one request.** Include the base territory and a `manualPrices` entry for every
-territory that has a `price_point_id` (changed or not; territories left out fall back to Apple's automatic
-prices). Use temporary ids `${price0}`, `${price1}`, ... and one `included` resource per price:
+territory that has a `price_point_id` (changed or not). A territory `plan.rb` skipped (unavailable, no equalized
+price, no price points) carries its **current** point in that field, so its manual price survives; only a
+territory with no current price at all has none and falls back to Apple's automatic price. Use temporary ids `${price0}`, `${price1}`, ... and one `included` resource per price:
 
 ```json
 {

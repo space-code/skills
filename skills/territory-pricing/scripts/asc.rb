@@ -127,7 +127,7 @@ module Asc
   def path(base, params = {})
     return base if params.empty?
 
-    "#{base}?#{params.map { |k, v| "#{enc(k)}=#{enc(v)}" }.join('&')}"
+    "#{base}#{base.include?('?') ? '&' : '?'}#{params.map { |k, v| "#{enc(k)}=#{enc(v)}" }.join('&')}"
   end
 
   def request(method, target, body = nil)

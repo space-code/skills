@@ -96,7 +96,9 @@ out flags (`clamped`, `large-change`) and territories that used a fallback (`rat
 chosen strategy).
 
 If the user edits `proposal.csv` (change `proposed`; empty the cell to leave a territory alone), run
-`plan.rb --out "$RUN" --rebuild` and show the new summary. To try another strategy, run `plan.rb` again.
+`plan.rb --out "$RUN" --rebuild` and show the new summary. Prices like `9,90` or `$4.99` are understood; if a
+cell cannot be read, `--rebuild` names it and changes nothing. A rebuild keeps the settings of the original
+run. To try another strategy, run `plan.rb` again.
 
 ### 5. Get consent
 

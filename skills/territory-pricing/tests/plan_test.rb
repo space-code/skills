@@ -48,8 +48,9 @@ class PlanTest < Minitest::Test
       r = rows(dir)
       assert_equal 'base', r['USA']['ratio_source']
       assert_equal 11.99, r['USA']['proposed']
-      assert_nil r['ZZZ']['proposed']
       assert_equal 'unavailable', r['ZZZ']['note']
+      assert_equal 'zzz-5', r['ZZZ']['price_point_id'], 'a skipped territory keeps its current price point'
+      assert_nil r['ZZZ']['ratio_source']
     end
   end
 
@@ -106,6 +107,80 @@ class PlanTest < Minitest::Test
       _, err, status = Open3.capture3(RbConfig.ruby, PLAN, '--out', dir, '--input', INPUT, '--endings', 'fancy')
       refute status.success?
       assert_includes err, 'fancy'
+    end
+  end
+
+  def with_tiers(json)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'tiers.json')
+      File.write(path, JSON.generate(json))
+      yield path, dir
+    end
+  end
+
+  def test_partial_tier_ratios_keep_the_defaults_for_the_rest
+    with_tiers('tier_ratios' => { '1' => 1.0, '2' => 0.5 }, 'territories' => { 'BRA' => 2, 'IND' => 3 }) do |tiers, dir|
+      plan(dir, '--input', INPUT, '--strategy', 'tiered', '--tiers', tiers)
+      r = rows(dir)
+      assert_equal 0.4, r['IND']['ratio'], 'tier 3 falls back to its default ratio, not to full price'
+      assert_equal 0.5, r['BRA']['ratio']
+    end
+  end
+
+  def test_a_tier_without_any_ratio_is_an_error
+    with_tiers('territories' => { 'BRA' => 9 }) do |tiers, dir|
+      _, err, status = Open3.capture3(RbConfig.ruby, PLAN, '--out', dir, '--input', INPUT, '--strategy', 'tiered', '--tiers', tiers)
+      refute status.success?
+      assert_includes err, 'tier 9'
+    end
+  end
+
+  def test_a_narrow_clamp_leaves_the_base_alone
+    Dir.mktmpdir do |dir|
+      plan(dir, '--input', INPUT, '--strategy', 'tiered', '--tiers', TIERS, '--clamp-max', '0.9')
+      assert_equal 11.99, rows(dir)['USA']['proposed']
+    end
+  end
+
+  def test_rebuild_keeps_the_options_of_the_original_run
+    Dir.mktmpdir do |dir|
+      plan(dir, '--input', INPUT, '--strategy', 'tiered', '--tiers', TIERS, '--flag-threshold', '0.1')
+      csv_path = File.join(dir, 'proposal.csv')
+      table = CSV.read(csv_path, headers: true)
+      table.each { |row| row['proposed'] = '79.9' if row['territory'] == 'BRA' }
+      File.write(csv_path, table.to_csv)
+      plan(dir, '--rebuild')
+      bra = rows(dir)['BRA']
+      assert_equal 79.9, bra['proposed']
+      assert_equal 0.1, JSON.parse(File.read(File.join(dir, 'proposal.json')))['meta']['options']['flag_threshold']
+      assert_includes rows(dir)['IND']['flag'], 'large-change', 'untouched rows keep the stored threshold too'
+    end
+  end
+
+  def test_rebuild_with_an_unreadable_cell_changes_nothing
+    Dir.mktmpdir do |dir|
+      plan(dir, '--input', INPUT, '--strategy', 'tiered', '--tiers', TIERS)
+      before = File.read(File.join(dir, 'proposal.json'))
+      csv_path = File.join(dir, 'proposal.csv')
+      table = CSV.read(csv_path, headers: true)
+      table.each { |row| row['proposed'] = 'about ten' if row['territory'] == 'BRA' }
+      File.write(csv_path, table.to_csv)
+      _, err, status = Open3.capture3(RbConfig.ruby, PLAN, '--out', dir, '--rebuild')
+      assert_equal 2, status.exitstatus
+      assert_includes err, "BRA: 'about ten'"
+      assert_equal before, File.read(File.join(dir, 'proposal.json'))
+    end
+  end
+
+  def test_a_comma_decimal_edit_survives_a_rebuild
+    Dir.mktmpdir do |dir|
+      plan(dir, '--input', INPUT, '--strategy', 'tiered', '--tiers', TIERS)
+      csv_path = File.join(dir, 'proposal.csv')
+      table = CSV.read(csv_path, headers: true)
+      table.each { |row| row['proposed'] = '35,0' if row['territory'] == 'BRA' }
+      File.write(csv_path, table.to_csv)
+      plan(dir, '--rebuild')
+      assert_equal 'bra-34', rows(dir)['BRA']['price_point_id']
     end
   end
 end
