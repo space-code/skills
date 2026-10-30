@@ -7,9 +7,10 @@
 #   ruby plan.rb --input plan-input.json --out DIR --strategy gni_bands [--base USA]
 #   ruby plan.rb --out DIR --rebuild        # re-read an edited DIR/proposal.csv
 #
-# Input: {"product": {...free-form...}, "base_territory": "USA", "territories": [
+# Input: {"product": {"kind", "id", "name", "period"}, "base_territory": "USA", "territories": [
 #   {"territory", "currency", "current", "current_point_id", "equalized",
 #    "available" (default true), "points": [{"id", "price"}]}]}
+# product.period (ONE_MONTH, ONE_YEAR, ..., LIFETIME) is only needed by ladder.rb.
 $LOAD_PATH.unshift(File.expand_path('lib', __dir__))
 require 'optparse'
 require 'fileutils'

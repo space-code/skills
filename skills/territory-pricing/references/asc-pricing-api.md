@@ -52,7 +52,10 @@ Build `plan-input.json` (format in `scripts/plan.rb`'s header):
    `/v1/subscriptions/{id}/subscriptionAvailability` then `/v1/subscriptionAvailabilities/{id}/availableTerritories`.
    If you cannot read availability reliably, leave `available` true and tell the user.
 
-Put `"product": {"kind", "id", "name"}` and `"base_territory"` at the top of the file.
+Put `"product": {"kind", "id", "name", "period"}` and `"base_territory"` at the top of the file. `period` is what
+`ladder.rb` compares: a subscription's `attributes.subscriptionPeriod` (`ONE_WEEK`, `ONE_MONTH`, `TWO_MONTHS`,
+`THREE_MONTHS`, `SIX_MONTHS`, `ONE_YEAR`; the products list shows it) or `LIFETIME` for a lifetime unlock
+(an in-app purchase with `inAppPurchaseType` `NON_CONSUMABLE`).
 
 ### Reading price points in batches
 
@@ -82,10 +85,26 @@ it. Reuse `$RUN/points/` when you re-run a plan for the same product on the same
 
 Only after consent, always with `--write`; save every request body in the run folder.
 
-**App and in-app purchase: one request.** Include the base territory and a `manualPrices` entry for every
-territory that has a `price_point_id` (changed or not). A territory `plan.rb` skipped (unavailable, no equalized
-price, no price points) carries its **current** point in that field, so its manual price survives; only a
-territory with no current price at all has none and falls back to Apple's automatic price. Use temporary ids `${price0}`, `${price1}`, ... and one `included` resource per price:
+**App and in-app purchase: one request, built by `schedule_body.rb`.**
+
+```bash
+ruby "$SKILL_DIR/scripts/schedule_body.rb" --proposal "$RUN/proposal.json" --kind app --id <APP_ID> [--start-date D] > "$RUN/body.json"
+ruby "$SKILL_DIR/scripts/asc.rb" POST /v1/appPriceSchedules @"$RUN/body.json" --write
+```
+
+Use `--kind iap --id <IAP_ID>` and `POST /v1/inAppPurchasePriceSchedules` for an in-app purchase. Look at
+`body.json` before posting. It holds the base territory and a `manualPrices` entry for every territory that has a
+`price_point_id` (changed or not). A territory `plan.rb` skipped (unavailable, no equalized price, no price points)
+carries its **current** point in that field, so its manual price survives; only a territory with no current price at
+all has none and falls back to Apple's automatic price.
+
+* **Without `--start-date`** every price takes effect at once.
+* **With `--start-date D`** (after today, UTC) a territory whose price changes keeps its current point until D and
+  switches on D; unchanged territories keep one immediate price. App prices use `startDate` / `endDate` on the old
+  and new entry, in-app purchase prices a `startDate` pair, as in Apple's examples. **This dated form is not
+  verified against the live API**: try it on a non-critical in-app purchase first and read the schedule back.
+
+The body looks like this (an app, immediate; `schedule_body.rb` writes it for you):
 
 ```json
 {
@@ -105,10 +124,10 @@ territory with no current price at all has none and falls back to Apple's automa
 }
 ```
 
-For an in-app purchase swap the names: `appPriceSchedules` becomes `inAppPurchasePriceSchedules`, the relationship
-`app` is `inAppPurchase` (type `inAppPurchases`), prices are `inAppPurchasePrices`, the price point relationship
-is `inAppPurchasePricePoint` (type `inAppPurchasePricePoints`). Never post the base alone: that drops every
-per-territory price back to Apple's automatic one. Prices take effect immediately.
+For an in-app purchase the names change: `inAppPurchasePriceSchedules`, relationship `inAppPurchase` (type
+`inAppPurchases`), prices `inAppPurchasePrices` with the price point relationship `inAppPurchasePricePoint`, and each
+price also names its product in `inAppPurchaseV2`. Never post the base alone: that drops every per-territory price
+back to Apple's automatic one.
 
 **Subscription: one request per territory.**
 
@@ -126,11 +145,24 @@ Order: (1) second explicit yes with the irreversibility warning; (2) `startDate`
 wrote so a rerun resumes. `preserveCurrentPrice: true` keeps existing subscribers on their price; `false`
 triggers Apple's price-increase consent flow and only on the user's explicit request.
 
+## A family of products (subscriptions plus a lifetime unlock)
+
+Price the products with the same strategy, base territory and endings, one `plan.rb` run each, then check the
+ladder across all their proposals with `ladder.rb` (details in `SKILL.md`, step 4); consent is blocked while it
+reports violations. Write them so they all switch on one day D (tomorrow or later):
+
+1. each subscription: `startDate` D, canary, then the rest;
+2. the lifetime unlock: `schedule_body.rb ... --kind iap --start-date D`.
+
+Without the shared date an in-app purchase written today changes at once while the subscriptions change tomorrow, so
+for a day the yearly plan could cost more than the lifetime unlock.
+
 ## Verifying
 
 GET the prices back with the same calls as in "Collecting" and compare the price point in effect (for
-subscriptions: the scheduled entry with the same `startDate`) with `proposal.json`. Report counts and every
-mismatch.
+subscriptions: the scheduled entry with the same `startDate`; for an app or in-app purchase written with
+`--start-date`: the entry with that `startDate` in the schedule's `manualPrices`) with `proposal.json`. Report counts
+and every mismatch.
 
 ## Rollback
 

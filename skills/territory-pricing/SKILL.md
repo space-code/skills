@@ -49,8 +49,12 @@ Continue only on `setup OK`.
 List apps with `asc.rb GET '/v1/apps?limit=200&fields[apps]=name,bundleId' --paginate` (filter by the bundle
 id from the Xcode project if there is one), then list the app's products (app price, in-app purchases,
 subscription groups). Commands are in the playbook. Ask which product to price. For subscriptions price
-**the whole subscription group** with one start date, so a yearly plan never sits above a lifetime unlock
-for a day. One kind and one group per run.
+**the whole subscription group** with one start date. One product per `plan.rb` run.
+
+When the app sells several products that belong together (monthly and yearly subscriptions, a lifetime
+unlock), price them as a **family**: the same strategy, base territory and endings for all of them, one start
+date D (tomorrow or later), and the ladder check of step 4 before consent. A lifetime unlock is an in-app
+purchase of type non-consumable; its period is `LIFETIME`.
 
 ### 3. Choose the strategy and settings
 
@@ -84,7 +88,8 @@ Follow the playbook to collect, per territory: current price and price point, eq
 of price points. Reading the price points is about 700 requests: use `scripts/collect_points.rb` in short
 batches (run it again until it prints `done`, report progress after each run). Never run one long command
 or your own sequential loop: the shell kills a command after 10 minutes and everything collected is lost.
-Save the result as `plan-input.json`, then:
+Save the result as `plan-input.json` with `product.period` set (the subscription's `subscriptionPeriod`, such
+as `ONE_MONTH` or `ONE_YEAR`, or `LIFETIME` for a lifetime unlock), then:
 
 ```bash
 ruby "$SKILL_DIR/scripts/plan.rb" --input "$RUN/plan-input.json" --out "$RUN" --strategy <strategy> --base <TERRITORY> --endings <charm|none>
@@ -94,6 +99,17 @@ It writes `proposal.json` and `proposal.csv` and prints the summary. Show the us
 with dates, largest decreases and increases, skipped territories, and the path to `proposal.csv`. Point
 out flags (`clamped`, `large-change`) and territories that used a fallback (`ratio_source` other than the
 chosen strategy).
+
+**Family check.** When you priced more than one product of the app, run the ladder check over all their
+proposals:
+
+```bash
+ruby "$SKILL_DIR/scripts/ladder.rb" "$RUN_A/proposal.json" "$RUN_B/proposal.json" "$RUN_C/proposal.json"
+```
+
+Per territory it requires that a longer subscription costs more in total but less per month, and that a
+lifetime unlock costs at least 2x the cheapest yearly cost (`--lifetime-min-years` to change it). Show the
+violations next to the proposals. It exits 1 on a violation, 2 when a proposal has no `product.period`.
 
 If the user edits `proposal.csv` (change `proposed`; empty the cell to leave a territory alone), run
 `plan.rb --out "$RUN" --rebuild` and show the new summary. Prices like `9,90` or `$4.99` are understood; if a
@@ -105,12 +121,19 @@ run. To try another strategy, run `plan.rb` again.
 Ask plainly: apply this proposal? Name the product, strategy, the number of territories that change and the
 largest decrease. Wait for a clear yes. Anything else: adjust and re-run `plan.rb`.
 
+**Do not ask for consent while the ladder check reports violations.** Fix them (edit `proposal.csv`, run
+`plan.rb --rebuild`, run `ladder.rb` again) or change the settings. Only if the user
+explicitly accepts the listed violations, save their answer as `ladder-accepted.txt` in the run folder and go on.
+
 ### 6. Write
 
 Follow the playbook's write section for the product kind, always with `--write` and always from
 `proposal.json` (the rows with a `price_point_id` that differs from `current_point_id`):
 
-* **App price / in-app purchase:** one schedule with the base territory and every manual price.
+* **App price / in-app purchase:** one schedule with the base territory and every manual price, built by
+  `schedule_body.rb` (`--start-date D` makes changed territories switch on day D; without it they change at
+  once). For a family, write the subscriptions with start date D and the lifetime unlock with
+  `--start-date D`, so all of them switch on the same day.
 * **Subscription:** price changes that took effect cannot be undone, so get a **second, separate yes**
   with that warning, write 1-2 canary territories first, read them back and show the user, then the rest
   with the **same** start date. Existing subscribers keep their price (`preserveCurrentPrice: true`) unless
@@ -131,7 +154,9 @@ change that already took effect can only be superseded by a new change, not undo
 ## Gotchas that cost money
 
 * Posting a new base price alone wipes every per-territory price. Always send the base and all manual prices together.
-* New subscription prices start the next day at the earliest.
+* New subscription prices start the next day at the earliest. An in-app purchase written without a start date
+  changes at once, so a lifetime unlock written today is dearer or cheaper than the yearly plan for a day:
+  give it the same start date.
 * A price in effect can sit on a **legacy price point** that Apple no longer lists; its equalizations
   return 404. `plan.rb` maps it onto the listed point with the same price, and the playbook does the same
   for the base point before reading equalizations.
