@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
 require_relative 'test_helper'
-require 'asc'
+require_relative '../scripts/asc'
+require 'open3'
+require 'rbconfig'
 require 'openssl'
 require 'tmpdir'
 
@@ -50,5 +52,30 @@ class AscTest < Minitest::Test
 
   def test_token_is_never_sent_to_another_host
     assert_raises(Asc::Error) { Asc.request(:get, 'https://example.com/v1/apps') }
+  end
+
+  ASC = File.expand_path('../scripts/asc.rb', __dir__)
+
+  def run_asc(*args)
+    Open3.capture3({ 'ASC_KEY_ID' => nil, 'ASC_ISSUER_ID' => nil, 'ASC_P8' => nil, 'HOME' => Dir.tmpdir }, RbConfig.ruby, ASC, *args)
+  end
+
+  def test_writes_are_refused_without_the_write_flag
+    %w[POST PATCH DELETE].each do |method|
+      _, err, status = run_asc(method, '/v1/subscriptionPrices', '{}')
+      assert_equal 2, status.exitstatus, method
+      assert_includes err, '--write'
+    end
+  end
+
+  def test_write_guard_runs_before_credentials_are_read
+    _, err, status = run_asc('POST', '/v1/x', '{}')
+    refute_includes err, 'AuthKey', 'no key lookup should happen for a refused write'
+    assert_equal 2, status.exitstatus
+  end
+
+  def test_unknown_flags_and_methods_are_rejected
+    assert_equal 2, run_asc('GET', '/v1/apps', '--bogus').last.exitstatus
+    assert_equal 2, run_asc('PUT', '/v1/apps', '--write').last.exitstatus
   end
 end

@@ -1,46 +1,120 @@
-# App Store Connect pricing endpoints
+# Playbook: App Store Connect pricing calls
 
-What the scripts call, per product kind. Shapes follow Apple's App Store Connect API documentation.
+You call the API with `scripts/asc.rb`. Shapes follow Apple's App Store Connect API documentation; the
+points marked **unverified** have not been confirmed against the live API.
+
+```bash
+A="ruby $SKILL_DIR/scripts/asc.rb"
+$A GET '/v1/apps?limit=1'                       # one request
+$A GET '/v1/subscriptions/42/prices?limit=200' --paginate   # follows links.next, merges data + included
+$A POST /v1/subscriptionPrices @body.json --write           # writes need --write and a JSON body or @file
+```
+
+Brackets in query strings must be percent-encoded: `filter%5Bterritory%5D=USA`. In Ruby,
+`require "#{ENV['SKILL_DIR']}/scripts/asc"` gives you `Asc.request`, `Asc.paginate` and `Asc.path` for a
+throwaway collection script (keep it in the scratchpad, not in the repo).
+
+## Endpoints
 
 | | App price | In-app purchase | Subscription |
 |---|---|---|---|
-| Current prices | `GET /v1/apps/{id}/appPriceSchedule`, then `/v1/appPriceSchedules/{sid}/manualPrices` and `/automaticPrices` (`include=appPricePoint,territory`) | `GET /v2/inAppPurchases/{id}/iapPriceSchedule`, then `/v1/inAppPurchasePriceSchedules/{sid}/manualPrices` and `/automaticPrices` | `GET /v1/subscriptions/{id}/prices` (`include=subscriptionPricePoint,territory`) |
-| Base territory | `/v1/appPriceSchedules/{sid}/baseTerritory` | `/v1/inAppPurchasePriceSchedules/{sid}/baseTerritory` | none; chosen by the user (`--base`) |
+| Current prices | `GET /v1/apps/{id}/appPriceSchedule`, then `/v1/appPriceSchedules/{sid}/manualPrices` and `/automaticPrices` (`include=appPricePoint,territory`) | `GET /v2/inAppPurchases/{id}/iapPriceSchedule`, then `/v1/inAppPurchasePriceSchedules/{sid}/manualPrices` and `/automaticPrices` | `GET /v1/subscriptions/{id}/prices?include=subscriptionPricePoint,territory` |
+| Base territory | `/v1/appPriceSchedules/{sid}/baseTerritory` | `/v1/inAppPurchasePriceSchedules/{sid}/baseTerritory` | none; ask the user (default USA) |
 | Price points of a territory | `GET /v1/apps/{id}/appPricePoints?filter[territory]=X` | `GET /v2/inAppPurchases/{id}/pricePoints?filter[territory]=X` | `GET /v1/subscriptions/{id}/pricePoints?filter[territory]=X` |
-| Equalized prices | `GET /v3/appPricePoints/{pp}/equalizations` | `GET /v1/inAppPurchasePricePoints/{pp}/equalizations` | `GET /v1/subscriptionPricePoints/{pp}/equalizations` |
+| Equalized prices of a base point | `GET /v3/appPricePoints/{pp}/equalizations?include=territory` | `GET /v1/inAppPurchasePricePoints/{pp}/equalizations` | `GET /v1/subscriptionPricePoints/{pp}/equalizations?include=territory` |
 | Write | `POST /v1/appPriceSchedules` | `POST /v1/inAppPurchasePriceSchedules` | `POST /v1/subscriptionPrices`, one per territory |
-| Territory availability (best effort) | `/v1/apps/{id}/appAvailabilityV2` -> `/v2/appAvailabilities/{id}/territoryAvailabilities` | `/v2/inAppPurchases/{id}/inAppPurchaseAvailability` -> `.../availableTerritories` | `/v1/subscriptions/{id}/subscriptionAvailability?include=availableTerritories` |
+| Products of an app | the app itself | `GET /v1/apps/{id}/inAppPurchasesV2` | `GET /v1/apps/{id}/subscriptionGroups`, then `/v1/subscriptionGroups/{gid}/subscriptions` |
 
-Availability is read best effort: if Apple's answer cannot be read, every territory is treated as available
-and a warning is printed.
+Each price point has `attributes.customerPrice` (a string) and a `territory` relationship; the territory's
+`attributes.currency` comes with `include=territory`. A price resource links to its price point through the
+relationship `appPricePoint` / `inAppPurchasePricePoint` / `subscriptionPricePoint`; resolve it in `included`.
+A price whose `startDate` is in the future is a scheduled change, not the price in effect.
 
-## Writes
+## Collecting the data for `plan.rb`
 
-**App and IAP**: one POST with `baseTerritory` and a `manualPrices` entry (an `included` `appPrices` /
-`inAppPurchasePrices` resource with a temporary `${priceN}` id) for every territory. A schedule posted without the
-per-territory prices drops them back to Apple's automatic prices, so the scripts never post the base alone.
-Territories left out of the proposal (unavailable, no price points) follow the automatic prices.
+Build `plan-input.json` (format in `scripts/plan.rb`'s header):
 
-**Subscription**: `POST /v1/subscriptionPrices` with `startDate` (default tomorrow) and
-`preserveCurrentPrice` (default `true`: existing subscribers keep their price). There is no bulk endpoint.
-Price changes that have taken effect cannot be reverted; scheduled ones can be cancelled
-(`DELETE /v1/subscriptionPrices/{id}`), which is what `--rollback` does first.
+1. Read the current prices; per territory take the price in effect (no `startDate` or one in the past, and
+   no `endDate` in the past): `current` (a number), `current_point_id`, `currency`.
+2. Read the price points of the base territory. **If `current_point_id` of the base is not in that list,
+   the price sits on a legacy point: use the listed point with the same price as the base point.** Calling
+   `equalizations` with a legacy id returns 404 ("does not correspond to a valid pricePoint or was
+   deprecated").
+3. Read the equalizations of that base point: `equalized` and `currency` per territory (the base territory
+   itself may be missing; use its current price).
+4. For every territory read its price points (one request per territory, about 175, paginated):
+   `points: [{"id", "price"}]` with `price` as a number.
+5. `available` is true unless you verified the territory is not sold. **Do not mark territories unavailable
+   from an empty or failed availability read**: an earlier version did exactly that and marked all 175
+   territories unavailable. Availability endpoints (**unverified**): app
+   `/v1/apps/{id}/appAvailabilityV2` then `/v2/appAvailabilities/{id}/territoryAvailabilities`; IAP
+   `/v2/inAppPurchases/{id}/inAppPurchaseAvailability` then `.../availableTerritories`; subscription
+   `/v1/subscriptions/{id}/subscriptionAvailability` then `/v1/subscriptionAvailabilities/{id}/availableTerritories`.
+   If you cannot read availability reliably, leave `available` true and tell the user.
 
-## Verification
+Put `"product": {"kind", "id", "name"}` and `"base_territory"` at the top of the file.
 
-After a write `apply.rb` re-reads the product with the same calls as the snapshot and compares the price
-point in effect (or, for subscriptions, a scheduled entry with the same start date) to the proposal.
-Output: `after.json` and `verify.json` next to the proposal.
+## Writing
+
+Only after consent, always with `--write`; save every request body in the run folder.
+
+**App and in-app purchase: one request.** Include the base territory and a `manualPrices` entry for every
+territory that has a `price_point_id` (changed or not; territories left out fall back to Apple's automatic
+prices). Use temporary ids `${price0}`, `${price1}`, ... and one `included` resource per price:
+
+```json
+{
+  "data": {
+    "type": "appPriceSchedules",
+    "attributes": {},
+    "relationships": {
+      "app": { "data": { "type": "apps", "id": "<APP_ID>" } },
+      "baseTerritory": { "data": { "type": "territories", "id": "USA" } },
+      "manualPrices": { "data": [{ "type": "appPrices", "id": "${price0}" }] }
+    }
+  },
+  "included": [
+    { "type": "appPrices", "id": "${price0}", "attributes": { "startDate": null },
+      "relationships": { "appPricePoint": { "data": { "type": "appPricePoints", "id": "<PRICE_POINT_ID>" } } } }
+  ]
+}
+```
+
+For an in-app purchase swap the names: `appPriceSchedules` becomes `inAppPurchasePriceSchedules`, the relationship
+`app` is `inAppPurchase` (type `inAppPurchases`), prices are `inAppPurchasePrices`, the price point relationship
+is `inAppPurchasePricePoint` (type `inAppPurchasePricePoints`). Never post the base alone: that drops every
+per-territory price back to Apple's automatic one. Prices take effect immediately.
+
+**Subscription: one request per territory.**
+
+```json
+{ "data": { "type": "subscriptionPrices",
+    "attributes": { "startDate": "YYYY-MM-DD", "preserveCurrentPrice": true },
+    "relationships": {
+      "subscription": { "data": { "type": "subscriptions", "id": "<SUBSCRIPTION_ID>" } },
+      "subscriptionPricePoint": { "data": { "type": "subscriptionPricePoints", "id": "<PRICE_POINT_ID>" } } } } }
+```
+
+Order: (1) second explicit yes with the irreversibility warning; (2) `startDate` = tomorrow or later, the
+**same** for every subscription of the group; (3) canary on 1-2 territories, GET them back, show the user;
+(4) the rest. Only territories whose `price_point_id` differs from `current_point_id`. Keep a log of what you
+wrote so a rerun resumes. `preserveCurrentPrice: true` keeps existing subscribers on their price; `false`
+triggers Apple's price-increase consent flow and only on the user's explicit request.
+
+## Verifying
+
+GET the prices back with the same calls as in "Collecting" and compare the price point in effect (for
+subscriptions: the scheduled entry with the same `startDate`) with `proposal.json`. Report counts and every
+mismatch.
+
+## Rollback
+
+`proposal.json` rows carry `current_point_id` (resolved to a listed point). App/IAP: write one schedule with
+those points. Subscriptions: first `DELETE /v1/subscriptionPrices/{id} --write` for each still-scheduled
+change you created (**unverified** endpoint), then write the old points as a new change only where the price in
+effect differs. Never delete scheduled changes that existed before your run.
 
 ## Rate limits and errors
 
-The client retries HTTP 429 and 5xx with backoff (honoring `Retry-After`), up to four attempts. An
-estimate for one product reads about 175 price-point lists, one request per territory, so it takes a minute or two.
-`401` means the key does not match its ids, `403` means the key role is too low.
-
-## Known unknowns
-
-The documentation does not show every response of `automaticPrices` and the IAP availability endpoints. If a
-current price cannot be resolved, the table shows `n/a` for it and treats the territory as changed. The
-scripts were checked against stubbed responses in this documented shape and against the live API only for
-authentication; run a dry run on a real product before the first write.
+`asc.rb` retries 429 and 5xx with backoff. `401`: key id, issuer id and `.p8` do not belong together.
+`403`: key role too low (needs App Manager or Admin). `404` on a price point: legacy point, see above.

@@ -53,4 +53,4 @@ bash scripts/check_setup.sh
 * The key stays outside every repository. `check_setup.sh` warns when the folder is inside a git work tree.
 * Scripts never print key material. Do not paste the `.p8` into a chat; if it leaked, revoke the key in
   App Store Connect and generate a new one.
-* `scripts/asc.rb` is GET-only. Writes exist only in `scripts/apply.rb`, behind `--confirm`.
+* `scripts/asc.rb` only reads unless you pass `--write`; the skill adds that flag only after the user approved the Price Proposal.

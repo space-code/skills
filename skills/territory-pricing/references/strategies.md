@@ -69,19 +69,20 @@ Unlisted territories get `default_tier`. `tier_ratios` and `default_tier` are op
 
 Ratio 1.0 everywhere: Apple's automatic prices. Use it as a baseline to see what a strategy changes.
 
-## Options
+## Options (`plan.rb`)
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--base` | schedule base, else USA | anchor territory |
+| `--strategy` | `gni_bands` | one of the strategies above |
+| `--base` | `base_territory` of the input, else USA | anchor territory |
 | `--clamp-min` / `--clamp-max` | 0.30 / 1.30 | ratio bounds against the equalized price |
 | `--flag-threshold` | 0.25 | flag `large-change` when the new price differs from the current by more than this |
-| `--offline` | off | use only the bundled data snapshots |
+| `--tiers FILE` | none | JSON for `--strategy tiered` |
 
 ## Data
 
-Fetched live on every estimate and cached nowhere; on failure the bundled snapshot in `references/data/`
-is used and the summary shows `snapshot` with its date. Sources: The Economist big-mac-data (GitHub),
-World Bank Indicators API. Refresh the snapshot with `ruby scripts/refresh_data.rb`. Territory codes are
-ISO 3166 alpha-3, as in App Store Connect; a territory whose code the sources do not know (for example a
-disputed or unlisted region) falls back to equalization.
+`plan.rb` reads only the bundled snapshots in `references/data/` (`big-mac.csv`, `ppp.csv`, `gni.csv`,
+`gni-bands.json`) and prints each one's date in the summary. Sources: The Economist big-mac-data (GitHub) and
+the World Bank Indicators API. Refresh them with `ruby scripts/refresh_data.rb`. Territory codes are ISO 3166
+alpha-3, as in App Store Connect; a territory whose code the sources do not know (for example a disputed or
+unlisted region) falls back to equalization.
