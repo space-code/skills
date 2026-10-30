@@ -16,8 +16,15 @@ module Pricing
     band2_min_gni: 4_500.0,
     band_ratios: { 1 => 1.0, 2 => 0.6, 3 => 0.3 },
     tier_ratios: { 1 => 1.0, 2 => 0.7, 3 => 0.4 },
-    default_tier: 1
+    default_tier: 1,
+    endings: 'none',
+    endings_tolerance: 0.05,
+    endings_rules: {}
   }.freeze
+
+  ENDING_MODES = %w[none charm].freeze
+  # Cent-based currencies without a rule of their own like .99 and .49.
+  DEFAULT_CENT_ENDINGS = [99, 49].freeze
 
   CSV_COLUMNS = %w[
     territory currency current equalized strategy ratio_source ratio clamped
@@ -133,10 +140,51 @@ module Pricing
                     end
     applied = clamp_ratio(ratio, opts)
     target = input['equalized'] * applied
-    point = nearest_point(target, input['points'])
+    point, note = if source == 'base'
+                    [nearest_point(target, input['points']), '']
+                  else
+                    pick_point(target, input['points'], input['currency'], opts)
+                  end
     row.merge!('ratio_source' => source, 'ratio' => applied.round(4), 'clamped' => applied != ratio,
-               'target' => target.round(2), 'price_point_id' => point['id'], 'proposed' => point['price'])
+               'target' => target.round(2), 'price_point_id' => point['id'], 'proposed' => point['price'], 'note' => note)
     finish(row, opts)
+  end
+
+  # Nearest price point, or with endings 'charm' the nearest one whose ending
+  # is customary in the currency, looked for within the tolerance around the
+  # target. The clamp already bounded the ratio that produced the target, so
+  # the window may reach slightly past it: a 3.49 for a 3.60 target is fine.
+  # -> [point, note]
+  def pick_point(target, points, currency, opts)
+    nearest = nearest_point(target, points)
+    return [nearest, ''] unless opts[:endings] == 'charm'
+
+    tol = opts[:endings_tolerance]
+    lo = target * (1 - tol)
+    hi = target * (1 + tol)
+    whole = points.none? { |p| (p['price'] % 1).abs > 1e-9 }
+    nice = points.select { |p| p['price'].between?(lo, hi) && charm?(p['price'], currency, whole, opts) }
+    return [nearest, "no charm ending within #{(tol * 100).round}%"] if nice.empty?
+
+    [nice.min_by { |p| [(p['price'] - target).abs, p['price']] }, '']
+  end
+
+  # Is the price customary for the currency? A currency rule is
+  # {'unit','mod','endings'}: (price * unit).round % mod must be one of the
+  # endings. Without a rule: cent currencies use .99 / .49, whole-number
+  # currencies use round numbers (at most two significant digits).
+  def charm?(price, currency, whole, opts)
+    rule = (opts[:endings_rules] || {})[currency]
+    return rule['endings'].include?((price * rule['unit']).round % rule['mod']) if rule
+    return round_number?(price) if whole
+
+    DEFAULT_CENT_ENDINGS.include?((price * 100).round % 100)
+  end
+
+  def round_number?(price)
+    return false unless price.positive?
+
+    (price.round % (10**[Math.log10(price).floor - 1, 0].max)).zero?
   end
 
   def skip(row, note)

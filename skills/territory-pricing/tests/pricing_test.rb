@@ -172,4 +172,88 @@ class PricingTest < Minitest::Test
     assert_equal 1, s['decreases']
     assert_equal 1, s['skipped']
   end
+
+  # ---- price endings ------------------------------------------------------
+
+  CHARM = Pricing.options(endings: 'charm', endings_rules: {
+                            'BRL' => { 'unit' => 100, 'mod' => 100, 'endings' => [90, 99] },
+                            'JPY' => { 'unit' => 1, 'mod' => 100, 'endings' => [80, 0] },
+                            'MXN' => { 'unit' => 1, 'mod' => 10, 'endings' => [9] }
+                          })
+
+  def pick(target, prices, currency, opts = CHARM)
+    point, note = Pricing.pick_point(target, points(*prices), currency, opts)
+    [point['price'], note]
+  end
+
+  def test_endings_none_keeps_the_nearest_point
+    assert_equal 6.88, pick(6.9, [6.88, 6.99, 7.05], 'USD', Pricing.options)[0]
+  end
+
+  def test_charm_prefers_a_99_ending_over_a_nearer_plain_price
+    assert_equal [6.99, ''], pick(6.9, [6.88, 6.99, 7.05], 'USD')
+  end
+
+  def test_charm_accepts_49_as_well_as_99
+    assert_equal 7.49, pick(7.5, [7.4, 7.49, 7.6], 'EUR')[0]
+  end
+
+  def test_charm_uses_the_local_convention_in_brazil
+    assert_equal 64.9, pick(64.7, [64.5, 64.9, 65.0, 66.0], 'BRL')[0], 'BRL likes .90, not .00'
+    assert_equal 64.99, pick(64.7, [64.5, 64.99, 65.0], 'BRL')[0]
+  end
+
+  def test_charm_in_japan_prefers_80_or_00_endings
+    prices = (150..160).map { |i| i * 10 }
+    assert_equal 1500, pick(1530, prices, 'JPY')[0]
+    assert_equal 1580, pick(1570, prices, 'JPY')[0]
+  end
+
+  def test_charm_in_mexico_prefers_prices_ending_in_9
+    assert_equal 249, pick(247, [240, 245, 249, 250], 'MXN')[0]
+  end
+
+  def test_whole_number_currency_without_a_rule_prefers_round_numbers
+    prices = (160..170).map { |i| i * 10 }
+    assert_equal 1600, pick(1630, prices, 'XYZ')[0], 'two significant digits'
+  end
+
+  def test_charm_stays_inside_the_tolerance
+    price, note = pick(7.0, [6.5, 7.3, 7.9], 'USD')
+    assert_equal 7.3, price, 'nearest wins when nothing nice is within 5%'
+    assert_equal 'no charm ending within 5%', note
+    assert_equal 6.99, pick(7.0, [6.99, 7.3], 'USD', Pricing.options(CHARM.merge(endings_tolerance: 0.01)))[0]
+  end
+
+  def test_charm_may_dip_below_the_clamp_floor_within_the_tolerance
+    # band 3 sits exactly on the clamp floor; the nice 3.49 just below a 3.60 target must still be reachable
+    assert_equal [3.49, ''], pick(3.6, [3.49, 3.59, 3.69], 'USD')
+  end
+
+  def test_charm_leaves_the_base_territory_alone
+    pts = points(9.99, 10.0, 10.49)
+    row = Pricing.build_row(input('USA', 10.0, pts, 'current' => 10.0), 'gni_bands', DATA, CHARM)
+    assert_equal 10.0, row['proposed']
+    assert_equal 'base', row['ratio_source']
+  end
+
+  def test_charm_in_a_full_row
+    row = Pricing.build_row(input('BRA', 79.9, points(34.9, 47.0, 47.9, 49.9, 79.9), 'currency' => 'BRL'), 'gni_bands', DATA, CHARM)
+    assert_equal 47.9, row['proposed'], 'target 47.94: 47.90 is nice for BRL and nearest'
+    assert_equal '', row['note']
+  end
+
+  # The shipped rules file must make sense on the price points Apple really lists.
+  SHIPPED = Pricing.options(endings: 'charm',
+                            endings_rules: JSON.parse(File.read(File.expand_path('../references/data/endings.json', __dir__)))['currencies'])
+
+  def test_shipped_rules_match_local_conventions
+    assert_equal 17.98, pick(17.9, [17.5, 17.9, 17.95, 17.98, 18.0], 'SGD', SHIPPED)[0], 'SGD uses .98'
+    assert_equal 39.9, pick(39.7, [39.5, 39.7, 39.9, 40.0], 'ILS', SHIPPED)[0], 'ILS uses .90'
+    assert_equal 88.0, pick(88.4, [87.0, 88.0, 88.8, 89.0], 'CNY', SHIPPED)[0], 'CNY likes an 8'
+    assert_equal 349.0, pick(359.7, [345.0, 349.0, 350.0, 359.0, 360.0], 'INR', SHIPPED)[0], 'INR uses 49 and 99'
+    assert_equal 19_000.0, pick(19_100, [18_900, 19_000, 19_100, 19_200], 'KRW', SHIPPED)[0], 'KRW prefers round thousands'
+    assert_equal 9.9, pick(9.8, [9.5, 9.8, 9.9, 10.0], 'CHF', SHIPPED)[0], 'CHF uses .90'
+  end
 end
+

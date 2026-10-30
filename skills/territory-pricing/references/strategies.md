@@ -69,6 +69,41 @@ Unlisted territories get `default_tier`. `tier_ratios` and `default_tier` are op
 
 Ratio 1.0 everywhere: Apple's automatic prices. Use it as a baseline to see what a strategy changes.
 
+## Price endings (`--endings`)
+
+The strategy gives a target price; Apple only sells fixed price points, and many of them look random
+(a territory has about 800). With `--endings none` the nearest point wins, whatever its ending. With
+`--endings charm` the nearest point **with a customary ending for the currency** wins, looked for within
+`--endings-tolerance` (default 5%) around the target; if there is none, the nearest point is used and the
+row's `note` says `no charm ending within 5%`. The base territory keeps its price.
+
+Customary endings are data, not code: `references/data/endings.json`. A price matches when
+`(price * unit).round % mod` is one of `endings`.
+
+| Currency | Endings | Why |
+|---|---|---|
+| USD, EUR, GBP, CAD, AUD, PLN, TRY and other cent currencies without an entry | .99, .49 | the default |
+| BRL, ILS | .90 | local convention (460 of 800 BRL price points end in .90) |
+| CHF | .90, .00 | |
+| SGD | .98, .48 | Apple's SGD points use .98 |
+| JPY | ...80, ...00 | |
+| KRW | ...900, ...000 | |
+| INR | ...99, ...49 | |
+| MXN | ending in 9 | |
+| CNY | ending in 8 | |
+| whole-number currency without an entry (IDR, VND, CLP, ...) | round numbers, at most two significant digits | |
+
+These conventions were checked against the price points of one real subscription for the currencies that
+have an entry, not for all 175 territories. Review the table for the markets that matter to the user and edit
+it, or pass another file with `--endings-file`.
+
+On the same data (175 territories, `gni_bands`), `charm` picked a different price than `none` in 81 territories,
+none further than 4.8% from its target, and every territory found a customary price. Example: a 359.7 INR target
+becomes 349 instead of 360, a 3.60 USD target becomes 3.49 instead of 3.59.
+
+The clamp bounds the ratio, not the final price: a charm price may sit up to the tolerance past the
+clamp bounds.
+
 ## Options (`plan.rb`)
 
 | Flag | Default | Meaning |
@@ -78,6 +113,9 @@ Ratio 1.0 everywhere: Apple's automatic prices. Use it as a baseline to see what
 | `--clamp-min` / `--clamp-max` | 0.30 / 1.30 | ratio bounds against the equalized price |
 | `--flag-threshold` | 0.25 | flag `large-change` when the new price differs from the current by more than this |
 | `--tiers FILE` | none | JSON for `--strategy tiered` |
+| `--endings` | `none` | `charm` for customary price endings, see above |
+| `--endings-tolerance` | 0.05 | how far from the target a charm price may be |
+| `--endings-file` | `references/data/endings.json` | ending rules per currency |
 
 ## Data
 

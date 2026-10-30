@@ -84,4 +84,29 @@ class PlanTest < Minitest::Test
       assert_includes err, 'FRA'
     end
   end
+
+  def test_charm_endings_are_reported_and_saved
+    Dir.mktmpdir do |dir|
+      out = plan(dir, '--input', INPUT, '--strategy', 'tiered', '--tiers', TIERS, '--endings', 'charm')
+      assert_includes out, 'Price endings: charm (within 5% of the target)'
+      options = JSON.parse(File.read(File.join(dir, 'proposal.json')))['meta']['options']
+      assert_equal 'charm', options['endings']
+      refute options.key?('endings_rules'), 'the rules file is not copied into the proposal'
+    end
+  end
+
+  def test_endings_default_to_nearest
+    Dir.mktmpdir do |dir|
+      assert_includes plan(dir, '--input', INPUT, '--strategy', 'equalization'), 'Price endings: none'
+    end
+  end
+
+  def test_unknown_ending_mode_is_rejected
+    Dir.mktmpdir do |dir|
+      _, err, status = Open3.capture3(RbConfig.ruby, PLAN, '--out', dir, '--input', INPUT, '--endings', 'fancy')
+      refute status.success?
+      assert_includes err, 'fancy'
+    end
+  end
 end
+

@@ -64,6 +64,17 @@ Ask the user (AskUserQuestion):
 | `tiered` | The user has their own country groups (`--tiers FILE`) |
 | `equalization` | Baseline only: Apple's own prices, for comparison |
 
+Ask in the same question round how the final price should look (price endings; details in
+`references/strategies.md`):
+
+| Endings | Meaning |
+|---|---|
+| `charm` (recommended) | Customary endings of each currency: .99 or .49 for USD, EUR, GBP and most cent currencies, .90 for BRL and ILS, .98 for SGD, round numbers in JPY, KRW and INR-style currencies. The price may move up to 5% away from the strategy's target to land on one. |
+| `none` | The Price Point nearest to the target, whatever its ending |
+
+Offer a different tolerance (default 5%) only if the user wants prettier or stricter prices
+(`--endings-tolerance`).
+
 Also confirm the base territory (default USA) and the guard rails: clamp 30%..130% of the equalized price,
 flag changes above 25%. Defaults are fine unless the user objects.
 
@@ -76,7 +87,7 @@ or your own sequential loop: the shell kills a command after 10 minutes and ever
 Save the result as `plan-input.json`, then:
 
 ```bash
-ruby "$SKILL_DIR/scripts/plan.rb" --input "$RUN/plan-input.json" --out "$RUN" --strategy <strategy> --base <TERRITORY>
+ruby "$SKILL_DIR/scripts/plan.rb" --input "$RUN/plan-input.json" --out "$RUN" --strategy <strategy> --base <TERRITORY> --endings <charm|none>
 ```
 
 It writes `proposal.json` and `proposal.csv` and prints the summary. Show the user: counts, data sources

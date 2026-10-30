@@ -33,6 +33,9 @@ OptionParser.new do |o|
   o.on('--clamp-min F', Float) { |v| overrides[:clamp_min] = v }
   o.on('--clamp-max F', Float) { |v| overrides[:clamp_max] = v }
   o.on('--flag-threshold F', Float) { |v| overrides[:flag_threshold] = v }
+  o.on('--endings MODE', Pricing::ENDING_MODES, 'none (nearest price point) or charm (customary endings)') { |v| overrides[:endings] = v }
+  o.on('--endings-tolerance F', Float, 'how far from the target a charm price may be, default 0.05') { |v| overrides[:endings_tolerance] = v }
+  o.on('--endings-file FILE', 'ending rules per currency, default references/data/endings.json') { |v| opts[:endings_file] = v }
   o.on('--rebuild') { opts[:rebuild] = true }
 end.parse!
 abort 'usage: see header of plan.rb' unless opts[:out] && (opts[:input] || opts[:rebuild])
@@ -52,6 +55,8 @@ def print_summary(meta, rows)
   (meta['data'] || {}).each { |k, v| puts "  data #{k}: #{v['origin']} (as of #{v['as_of']})" }
   puts "Territories #{s['territories']} | priced #{s['priced']} | changed #{s['changed']} | decreases #{s['decreases']} | increases #{s['increases']} | flagged #{s['flagged']} | skipped #{s['skipped']}"
   puts "Ratio sources: #{s['sources'].map { |k, v| "#{k} #{v}" }.join(', ')}"
+  o = (meta['options'] || {}).map { |k, v| [k.to_s, v] }.to_h
+  puts "Price endings: #{o['endings'] || 'none'}#{" (within #{(o['endings_tolerance'] * 100).round}% of the target)" if o['endings'] == 'charm'}"
   moved = rows.select { |r| r['change_pct'] && Pricing.changed?(r) }.sort_by { |r| r['change_pct'] }
   { 'Largest decreases' => moved.first(8).select { |r| r['change_pct'].negative? },
     'Largest increases' => moved.last(8).reverse.select { |r| r['change_pct'].positive? } }.each do |title, list|
@@ -80,6 +85,8 @@ end
 
 input = JSON.parse(File.read(opts[:input]))
 base = overrides[:base_territory] || input['base_territory'] || 'USA'
+endings_file = opts[:endings_file] || File.join(DATA_DIR, 'endings.json')
+overrides[:endings_rules] = JSON.parse(File.read(endings_file))['currencies']
 popts = Pricing.options(overrides.merge(base_territory: base))
 inputs = input['territories'].map do |t|
   t.merge('available' => t.fetch('available', true),
@@ -104,7 +111,7 @@ end
 rows = Pricing.build_proposal(inputs, opts[:strategy], data, popts)
 meta = { 'product' => input['product'], 'strategy' => opts[:strategy], 'base_territory' => base,
          'created_at' => Time.now.utc.iso8601, 'data' => provenance,
-         'options' => popts.reject { |k, _| %i[band_ratios tier_ratios].include?(k) } }
+         'options' => popts.reject { |k, _| %i[band_ratios tier_ratios endings_rules].include?(k) } }
 points = inputs.map { |t| [t['territory'], t['points'] || []] }.to_h
 File.write(proposal_path, JSON.pretty_generate('meta' => meta, 'rows' => rows, 'points' => points))
 File.write(csv_path, Pricing.to_csv(rows))
