@@ -1,0 +1,16 @@
+{
+  "product": { "kind": "subscription", "id": "42", "name": "Pro Monthly" },
+  "base_territory": "USA",
+  "territories": [
+    { "territory": "USA", "currency": "USD", "current": 11.99, "current_point_id": "usa-legacy", "equalized": 11.99,
+      "points": [{ "id": "usa-9", "price": 9.99 }, { "id": "usa-11", "price": 11.99 }, { "id": "usa-14", "price": 14.99 }] },
+    { "territory": "DEU", "currency": "EUR", "current": 12.99, "current_point_id": "deu-12", "equalized": 12.99,
+      "points": [{ "id": "deu-9", "price": 9.99 }, { "id": "deu-12", "price": 12.99 }] },
+    { "territory": "BRA", "currency": "BRL", "current": 79.9, "current_point_id": "bra-79", "equalized": 79.9,
+      "points": [{ "id": "bra-34", "price": 34.9 }, { "id": "bra-49", "price": 49.9 }, { "id": "bra-79", "price": 79.9 }] },
+    { "territory": "IND", "currency": "INR", "current": 999.0, "current_point_id": "ind-999", "equalized": 999.0,
+      "points": [{ "id": "ind-299", "price": 299.0 }, { "id": "ind-499", "price": 499.0 }, { "id": "ind-999", "price": 999.0 }] },
+    { "territory": "ZZZ", "currency": "ZZD", "current": 5.0, "current_point_id": "zzz-5", "equalized": 5.0, "available": false,
+      "points": [{ "id": "zzz-5", "price": 5.0 }] }
+  ]
+}

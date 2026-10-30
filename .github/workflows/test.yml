@@ -1,0 +1,31 @@
+name: test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - "skills/territory-pricing/**"
+
+concurrency:
+  group: test-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  territory-pricing:
+    name: territory-pricing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run unit tests
+        run: ruby skills/territory-pricing/tests/run_all.rb
+
+      - name: Syntax-check scripts
+        run: |
+          for f in skills/territory-pricing/scripts/*.rb skills/territory-pricing/scripts/lib/*.rb; do ruby -c "$f"; done
+          bash -n skills/territory-pricing/scripts/check_setup.sh

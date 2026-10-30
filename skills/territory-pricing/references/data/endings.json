@@ -1,0 +1,74 @@
+{
+  "note": "Customary price endings per currency, used by plan.rb --endings charm. A price matches when (price * unit).round % mod is one of endings. Currencies not listed use .99/.49 (cent currencies) or round numbers of at most two significant digits (whole-number currencies). Edit freely or pass another file with --endings-file.",
+  "currencies": {
+    "BRL": {
+      "unit": 100,
+      "mod": 100,
+      "endings": [
+        90,
+        99
+      ]
+    },
+    "CHF": {
+      "unit": 100,
+      "mod": 100,
+      "endings": [
+        90,
+        0
+      ]
+    },
+    "JPY": {
+      "unit": 1,
+      "mod": 100,
+      "endings": [
+        80,
+        0
+      ]
+    },
+    "KRW": {
+      "unit": 1,
+      "mod": 1000,
+      "endings": [
+        900,
+        0
+      ]
+    },
+    "INR": {
+      "unit": 1,
+      "mod": 100,
+      "endings": [
+        99,
+        49
+      ]
+    },
+    "MXN": {
+      "unit": 1,
+      "mod": 10,
+      "endings": [
+        9
+      ]
+    },
+    "ILS": {
+      "unit": 100,
+      "mod": 100,
+      "endings": [
+        90
+      ]
+    },
+    "SGD": {
+      "unit": 100,
+      "mod": 100,
+      "endings": [
+        98,
+        48
+      ]
+    },
+    "CNY": {
+      "unit": 1,
+      "mod": 10,
+      "endings": [
+        8
+      ]
+    }
+  }
+}

@@ -17,6 +17,16 @@
       "skills": [
         "./skills/conventional-commits"
       ]
+    },
+    {
+      "name": "app-store-suite",
+      "source": "./",
+      "description": "Skills for shipping iOS apps through App Store Connect, starting with worldwide territory pricing: Big Mac index, PPP and GNI-band strategies, an estimate-first workflow, and an API key check.",
+      "keywords": ["app-store-connect", "ios", "pricing", "localization", "ppp", "big-mac-index"],
+      "category": "development",
+      "skills": [
+        "./skills/territory-pricing"
+      ]
     }
   ]
 }
