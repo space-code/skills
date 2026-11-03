@@ -100,9 +100,11 @@ all has none and falls back to Apple's automatic price.
 
 * **Without `--start-date`** every price takes effect at once.
 * **With `--start-date D`** (after today, UTC) a territory whose price changes keeps its current point until D and
-  switches on D; unchanged territories keep one immediate price. App prices use `startDate` / `endDate` on the old
-  and new entry, in-app purchase prices a `startDate` pair, as in Apple's examples. **This dated form is not
-  verified against the live API**: try it on a non-critical in-app purchase first and read the schedule back.
+  switches on D; unchanged territories keep one immediate price. The old entry ends on D (`endDate` D) and the new one
+  starts on D (`startDate` D), for apps and in-app purchases alike. Without that `endDate` Apple rejects the whole
+  schedule with `409 Adjacent intervals must not intersect for <TERRITORY>: [null - null] and [D - null]` and writes
+  nothing. The in-app purchase form is verified against the live API; the app form is **unverified**, so read the
+  schedule back after writing it.
 
 The body looks like this (an app, immediate; `schedule_body.rb` writes it for you):
 

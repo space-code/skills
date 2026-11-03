@@ -48,13 +48,18 @@ class ScheduleTest < Minitest::Test
                  prices(build('app', START))
   end
 
-  def test_dated_iap_body_uses_a_start_date_pair
+  def test_dated_iap_body_ends_the_current_price_on_the_start_date
     body = build('iap', START)
     assert_equal 'inAppPurchasePriceSchedules', body['data']['type']
     assert_equal 'inAppPurchases', body['data']['relationships']['inAppPurchase']['data']['type']
-    assert_equal [['usa-old', nil, nil], ['usa-new', START, nil], ['deu-same', nil, nil], ['bra-new', START, nil]],
+    assert_equal [['usa-old', nil, START], ['usa-new', START, nil], ['deu-same', nil, nil], ['bra-new', START, nil]],
                  body['included'].map { |i| [i['relationships']['inAppPurchasePricePoint']['data']['id'], i['attributes']['startDate'], i['attributes']['endDate']] }
-    refute(body['included'].any? { |i| i['attributes'].key?('endDate') }, 'IAP prices have no endDate in Apple\'s example')
+  end
+
+  def test_iap_prices_carry_end_date_only_when_one_is_set
+    keys = build('iap', START)['included'].map { |i| i['attributes'].key?('endDate') }
+    assert_equal [true, false, false, false], keys
+    refute(build('iap')['included'].any? { |i| i['attributes'].key?('endDate') })
   end
 
   def test_iap_prices_name_their_product
