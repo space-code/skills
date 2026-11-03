@@ -9,8 +9,10 @@ require 'pricing'
 # Without a start date every territory gets one manual price that takes effect
 # at once. With a start date a territory whose price changes keeps its current
 # point until that day and switches on it; unchanged territories keep one
-# immediate price. Shapes follow Apple's documented examples; the dated form is
-# not verified against the live API.
+# immediate price. The current price must end on the day the new one starts:
+# Apple answers 409 "Adjacent intervals must not intersect" when an open-ended
+# current price sits next to a dated one. The dated in-app purchase form is
+# verified against the live API; the dated app form is not.
 module Schedule
   KINDS = {
     'app' => { type: 'appPriceSchedules', rel: 'app', rel_type: 'apps', price_type: 'appPrices',
@@ -50,13 +52,14 @@ module Schedule
     return [{ point: new_point, start: nil, end: nil }] unless start_date && Pricing.changed?(row)
     return [{ point: new_point, start: start_date, end: nil }] unless row['current_point_id']
 
-    [{ point: row['current_point_id'], start: nil, end: kind == 'app' ? start_date : nil },
+    [{ point: row['current_point_id'], start: nil, end: start_date },
      { point: new_point, start: start_date, end: nil }]
   end
 
   def resource(kind, cfg, product_id, id, entry)
     attributes = { 'startDate' => entry[:start] }
-    attributes['endDate'] = entry[:end] if kind == 'app'
+    # App prices always carry endDate; in-app purchase prices only when one is set.
+    attributes['endDate'] = entry[:end] if kind == 'app' || entry[:end]
     relationships = { cfg[:point_rel] => reference(cfg[:point_type], entry[:point]) }
     relationships['inAppPurchaseV2'] = reference('inAppPurchases', product_id) if kind == 'iap'
     { 'type' => cfg[:price_type], 'id' => id, 'attributes' => attributes, 'relationships' => relationships }
