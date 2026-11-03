@@ -7,34 +7,34 @@ user confirms in step 2; the user's choice in the config always wins.
 
 | Locale | Options (register: form) | Consumer | Business |
 |---|---|---|---|
-| de | informal: du · formal: Sie | informal | formal |
-| fr | informal: tu · formal: vous | formal | formal |
-| es | informal: tú · formal: usted | informal | formal |
-| es-MX, es-419 | informal: tú · formal: usted | informal | formal |
-| it | informal: tu · formal: Lei | informal | formal |
-| pt-BR | informal: você · formal: o senhor / a senhora | informal | informal |
-| pt-PT | informal: tu · formal: impersonal / você | formal | formal |
-| nl | informal: je / jij · formal: u | informal | formal |
-| sv, da, nb | informal: du | informal | informal |
-| fi | informal: sinä · formal: te | informal | informal |
-| pl | informal: ty · formal: Pan / Pani, impersonal | informal | formal |
-| cs, sk | informal: ty · formal: vy | formal | formal |
-| hu | informal: te · formal: Ön | informal | formal |
-| ro | informal: tu · formal: dumneavoastră | informal | formal |
-| el | informal: εσύ · formal: εσείς | formal | formal |
-| tr | informal: sen · formal: siz | formal | formal |
-| ru | informal: ты · formal: вы | formal | formal |
-| uk | informal: ти · formal: ви | formal | formal |
-| ja | informal: plain (だ・である) · formal: です・ます | formal | formal |
-| ko | informal: 반말 · polite: 해요체 · formal: 합니다체 | polite | formal |
-| zh-Hans, zh-Hant | informal: 你 · formal: 您 | informal | formal |
-| hi | informal: तुम · formal: आप | formal | formal |
-| id | informal: kamu · formal: Anda | formal | formal |
-| ms | informal: awak / kamu · formal: anda | formal | formal |
-| vi | neutral: bạn | neutral | neutral |
-| th | neutral: คุณ, no gendered particles | neutral | neutral |
-| ar | neutral: no T-V distinction | neutral | neutral |
-| he | neutral: no T-V distinction | neutral | neutral |
+| de | informal: `du` · formal: `Sie` | informal | formal |
+| fr | informal: `tu` · formal: `vous` | formal | formal |
+| es | informal: `tú` · formal: `usted` | informal | formal |
+| es-MX, es-419 | informal: `tú` · formal: `usted` | informal | formal |
+| it | informal: `tu` · formal: `Lei` | informal | formal |
+| pt-BR | informal: `você` · formal: `o senhor / a senhora` | informal | informal |
+| pt-PT | informal: `tu` · formal: `impersonal / você` | formal | formal |
+| nl | informal: `je / jij` · formal: `u` | informal | formal |
+| sv, da, nb | informal: `du` | informal | informal |
+| fi | informal: `sinä` · formal: `te` | informal | informal |
+| pl | informal: `ty` · formal: `Pan / Pani, impersonal` | informal | formal |
+| cs, sk | informal: `ty` · formal: `vy` | formal | formal |
+| hu | informal: `te` · formal: `Ön` | informal | formal |
+| ro | informal: `tu` · formal: `dumneavoastră` | informal | formal |
+| el | informal: `εσύ` · formal: `εσείς` | formal | formal |
+| tr | informal: `sen` · formal: `siz` | formal | formal |
+| ru | informal: `ты` · formal: `вы` | formal | formal |
+| uk | informal: `ти` · formal: `ви` | formal | formal |
+| ja | informal: `plain (だ・である)` · formal: `です・ます` | formal | formal |
+| ko | informal: `반말` · polite: `해요체` · formal: `합니다체` | polite | formal |
+| zh-Hans, zh-Hant | informal: `你` · formal: `您` | informal | formal |
+| hi | informal: `तुम` · formal: `आप` | formal | formal |
+| id | informal: `kamu` · formal: `Anda` | formal | formal |
+| ms | informal: `awak / kamu` · formal: `anda` | formal | formal |
+| vi | neutral: `bạn` | neutral | neutral |
+| th | neutral: `คุณ, no gendered particles` | neutral | neutral |
+| ar | neutral: `no T-V distinction` | neutral | neutral |
+| he | neutral: `no T-V distinction` | neutral | neutral |
 
 Locales not listed: ask the user for the register and describe it in `app.tone`.
 
@@ -57,8 +57,8 @@ nouns and infinitive buttons. Nouns are capitalized, everything else sentence ca
 (`Nutzer*innen`) unless the app already uses them; rephrase (`Alle, die …`).
 
 ### French (fr)
-Plurals: one, other (`many` optional, only for 1 000 000+ in compact forms). Note that 0 and 1 both take
-`one`. Narrow no-break space (U+202F) or no-break space (U+00A0) before `: ; ? !` and inside « … ».
+Plurals: one, other (`many` optional: exact millions and compact forms, `1 000 000 de fichiers`). Note that
+0 and 1 both take `one`. Narrow no-break space (U+202F) or no-break space (U+00A0) before `: ; ? !` and inside « … ».
 Sentence case. Text grows about 20%.
 
 ### Spanish (es, es-MX, es-419)
@@ -69,7 +69,7 @@ Spain-only words (`ordenador` → `computadora`, `móvil` → `celular`) and use
 Plurals: one, other. Sentence case. Formal `Lei`, `Suo`, `La` are capitalized inside sentences.
 
 ### Portuguese (pt-BR, pt-PT)
-Plurals: one, other. pt-BR addresses the user with `você`; pt-PT prefers impersonal or third-person forms
+Plurals: one, other; in pt-BR 0 also takes `one` (`0 arquivo`). pt-BR addresses the user with `você`; pt-PT prefers impersonal or third-person forms
 (`Introduza`, `Toque`) and its own vocabulary (`ecrã` vs pt-BR `tela`, `ficheiro` vs `arquivo`). Never reuse
 one variant for the other.
 
@@ -116,7 +116,7 @@ Plurals: one, two, other (`many` optional). RTL. Imperatives are gendered: prefe
 (`לשמור`) and plural or impersonal forms in sentences.
 
 ### Hindi (hi)
-Plurals: one, other. `आप` with matching verb forms (`करें`). Common English tech words (`ऐप`, `लॉग इन`) are
+Plurals: one, other; 0 also takes `one`. `आप` with matching verb forms (`करें`). Common English tech words (`ऐप`, `लॉग इन`) are
 fine in Devanagari script.
 
 ### Japanese (ja)
@@ -149,11 +149,13 @@ Plurals: other only. vi addresses the user with `bạn`. id `Anda` capitalized; 
 |---|---|
 | other | ja, ko, zh-Hans, zh-Hant, th, vi, id, ms |
 | one, other | en, de, nl, sv, da, nb, fi, it, es, pt, fr, el, hu, tr, hi, ca, bg, et |
-| one, few, other | ro, hr, sr, bs, sl |
+| one, few, other | ro, hr, sr, bs |
+| one, two, few, other | sl |
 | one, few, many, other | ru, uk, be, pl, cs, sk, lt |
 | zero, one, other | lv |
 | one, two, other | he |
 | zero, one, two, few, many, other | ar |
 
-When the source has an explicit `zero` form ("No items"), keep a `zero` form in every locale. `many` is
-optional for fr, es, it, pt and ca.
+When the source has an explicit `zero` form ("No items"), every locale gets a `zero` form too, even where the
+language has no `zero` category: Apple uses it for the number 0. `many` is optional for fr, es, it, pt and
+ca.

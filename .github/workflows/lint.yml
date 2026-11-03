@@ -34,4 +34,4 @@ jobs:
       - name: Discover typos
         run: |
           source .venv/bin/activate
-          codespell --ignore-words-list="hart,inout,msdos,sur,sie,serie,te,siz,alle" --skip="./.build/*,./.git/*,./skills/territory-pricing/references/data/*"
+          codespell --ignore-words-list="hart,inout,msdos,sur" --ignore-regex='`[^`\n]*`' --skip="./.build/*,./.git/*,./skills/territory-pricing/references/data/*"

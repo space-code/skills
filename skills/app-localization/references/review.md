@@ -7,10 +7,10 @@ Run every check over every translated unit. **Error**: breaks the app or loses m
 
 | Check | Severity | Rule |
 |---|---|---|
-| missing | error | Every path in `expect` has a non-empty value, every plural category the language needs is present (`references/languages.md`). |
+| missing | error | Every path in `expect` has a non-empty value: every plural category the language needs (`references/languages.md`), plus `zero` when the source has one. |
 | specifiers | error | Same arguments with the same types as the source; reordering only with positional specifiers; `%#@name@` and `%arg` unchanged. A plural `one` form may drop the number only where `one` means exactly 1 (`references/formats.md`). |
 | protected text | error | Brand terms, `keep` texts, URLs, Markdown links and `\n` count match the source. |
-| extra plural form | warning | A category the language does not use (`few` in German). |
+| extra plural form | warning | A category the language does not use (`few` in German). `zero` is never extra when the source has it. |
 | whitespace | warning | Leading and trailing spaces match the source. |
 
 ## Language
@@ -19,7 +19,7 @@ Run every check over every translated unit. **Error**: breaks the app or loses m
 |---|---|---|
 | untranslated | warning | Identical to the source while not in `keep`. Short words that really are the same (`OK`, `Wi-Fi`) go to `keep` after the user confirms. |
 | wrong script | error | A non-Latin locale (ru, uk, el, ar, he, hi, th, ja, ko, zh) without any of its own script outside brand terms. |
-| Latin leftovers | warning | A Latin word of 3+ letters in a non-Latin locale that is not a brand term or `keep` text. |
+| Latin leftovers | warning | A Latin word of 3+ letters in a non-Latin locale that is not a brand term, `keep` text, URL or part of a format specifier (`%lld`, `%arg`, `%#@files@`). |
 | Chinese script | error | Simplified characters in zh-Hant or Traditional in zh-Hans (这/這, 设/設, 视/視, 录/錄, 个/個), or the other region's vocabulary (视频 vs 影片, 软件 vs 軟體). |
 | sense | error | The translation picks the wrong meaning of an ambiguous word (Record noun/verb, Free gratis/unrestricted, Match, Close, Share, Post, Archive). Check against the key name, comment, neighbouring keys and the glossary. |
 | glossary | warning | A glossary term with a fixed translation for this locale appears in the source but not in the translation. |
