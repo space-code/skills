@@ -9,6 +9,7 @@ Dev Productivity Kit is a curated ecosystem of production-ready **Skills** and p
 |-----------|----------------|----------------|
 | git-suite       | `/conventional-commits`          | Generates semantic commits adhering to Conventional Commits 1.0.0. Max 50 chars for headers, 72 chars hard wrap for bodies, auto-detects BREAKING CHANGE. |
 | app-store-suite | `/territory-pricing`             | Worldwide per-territory pricing for iOS apps, IAPs and subscriptions. Strategies: GNI bands, PPP, Big Mac index, tiered. Checks the App Store Connect API key, shows a Price Proposal first and writes to App Store Connect only after consent. |
+| app-store-suite | `/app-localization`             | Localizes UI strings (`.xcstrings`, `.strings`, `.stringsdict`) with a per-language formality register (du/Sie, tu/vous, ты/вы, です・ます), correct plural forms and typography; translates all locales in parallel and reviews them against a fixed checklist. |
 
 ## Author
 
